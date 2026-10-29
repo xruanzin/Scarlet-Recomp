@@ -242,6 +242,34 @@ the isolated test. The first boot test's `romfs` junction pointed
 at ExeFS, **not real merged Scarlet RomFS**. Replace that with actual
 merged RomFS before trying content loading or declaring gameplay.
 
+## Scarlet v4.0.0 malloc bootstrap — diagnostic only
+
+Inspection of the game's merged NSO symbol tables proves that only main
+exports malloc (guest 0x7002b7d830). Both sdk and subsdk0 import it:
+the loader's symbol binding is correct.
+
+The temporary TPIDR probe got past the read of TPIDR_EL0+0x30 but
+failed deeper in main!malloc; moving main DT_INIT before sdk DT_INIT
+failed too, because main's constructors themselves allocate.
+
+An **opt-in diagnostic** (environment SCARLET_BOOTSTRAP_ALLOCATOR=1)
+adds an allocator object into the *temporary* thread-local area at
+TPIDR_EL0+0x30. The object provides the observed allocator vtable
+allocate method (offset +0x10), using guest-mapped allocations in the
+existing HLE heap. This allows an isolated experiment without rebuilding
+the AOT modules. It is incomplete: it has no free/realloc, lifetime, or
+allocator ownership semantics. It is **not** a fix for a playable game,
+must never be enabled in a release, and advancing to a later init phase
+does not establish correctness.
+
+Relink only the changed runtime with link_probe.py --jobs 2 and cache
+eb6deb908752b9c6. For this probe enable both
+SCARLET_EARLY_TLS_PROBE=1 and SCARLET_BOOTSTRAP_ALLOCATOR=1.
+Ensure SCARLET_MAIN_INIT_FIRST is **unset**. Capture startup logs and
+the first new crash, then unset both experimental variables.
+The executable still uses the inherited ZA host and its RomFS setup
+is not yet a correct Scarlet content mount.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
