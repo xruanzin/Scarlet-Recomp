@@ -113,6 +113,23 @@ Synthetic unit tests (no copyrighted game files):
 python tools/scarlet/test_preflight.py
 ```
 
+## How the three reference projects apply
+
+- [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp/tree/pokemon-za):
+  primary native layout (guest memory, kernel/HLE, loader, NVN/Vulkan and
+  launcher). It is also the source code of this fork; its game-specific
+  functions are *not* compatible with Scarlet without adaptation.
+- [LASRecomp](https://github.com/peiikai/LASRecomp): LLVM/clang-compatible
+  lifted function and AOT dispatch design. The existing `gen.py`, generated
+  C chunks, `lasgame` interfaces and Makefile build are inherited from it.
+- [SavageWindRecomp](https://github.com/Revivedx/SavageWindRecomp): its
+  `runtime/nvn/vulkan/precompile.c` budgets shader compilation memory and
+  orders pipeline jobs to avoid simultaneous peak allocations; `exec.c`
+  caches dynamic Vulkan state, and `perfmon.c` measures frame times.
+  These are concrete optimization candidates **after Scarlet first boots**.
+  The BOTW shader archive assumptions and gameplay-specific constants must
+  *not* be blindly copied.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
