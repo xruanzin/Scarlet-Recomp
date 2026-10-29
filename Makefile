@@ -114,7 +114,7 @@ IMGUI_OBJ += $(B)/imgui/imgui_impl_vulkan.o
 UIFLAGS  := -x c++ $(OSFLAGS)  # the .mm UI sources are plain C++ apart from __APPLE__ blocks
 GAMELIB  := $(B)/lasgame.dll
 # the runtime functions it calls: exported by the .exe, linked through its import library
-LDFLAGS  += -Wl,--export-all-symbols -Wl,--out-implib,$(B)/lasrecomp.dll.a
+LDFLAGS  += -Wl,--export-all-symbols -Wl,--out-implib,$(B)/lasrecomp.dll.a -lbcrypt  # csrng uses Windows CSPRNG
 GAMELIB_LDFLAGS := -shared -fuse-ld=lld $(B)/lasrecomp.dll.a
 GAMELIB_SHARED := -shared  # (+ the import library: runtime/gamebuild.c)
 endif
