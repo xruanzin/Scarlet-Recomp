@@ -165,6 +165,30 @@ syntax-checked in CI, **not** game-tested. The current runtime is still
 largely ZA-specific, so do not interpret the extra objects as a complete
 Windows Scarlet build, or run the original ZA launcher as a Scarlet port.
 
+## Experimental Windows link probe (reuses all three AOT modules)
+
+When `subsdk0-complete.json` exists and the source branch has been updated,
+the next non-destructive stage is to compile the inherited Vulkan runtime
+and link the local recompiled game objects into `lasgame.dll`. It does **not**
+launch Scarlet, apply extra patches, or rewrite `D:\\Pokemon Scarlet\\base=update`.
+
+```powershell
+cd "D:\\Scarlet-Recomp"
+git pull --ff-only
+$env:MSYSTEM = "UCRT64"
+$env:PATH = "C:\\msys64\\ucrt64\\bin;C:\\msys64\\usr\\bin;$env:PATH"
+py -3 tools\\scarlet\\link_probe.py --exefs "D:\\Pokemon Scarlet\\base=update" --cache-id eb6deb908752b9c6 --check-only
+py -3 tools\\scarlet\\link_probe.py --exefs "D:\\Pokemon Scarlet\\base=update" --cache-id eb6deb908752b9c6 --jobs 2
+```
+
+Successful linking produces `build/scarlet/<id>/lasrecomp.exe`,
+`lasgame.dll`, `scarlet-link.log`, and a
+`scarlet-link-complete.json` marker. **This is only an experimental link
+of the existing Z-A-derived runtime**: startup/HLE, Scarlet NPDM/FS
+assumptions, updated RomFS, graphics and playable frames are not yet
+validated. The resulting executable is not a Scarlet release and should not
+be distributed as a working port.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
