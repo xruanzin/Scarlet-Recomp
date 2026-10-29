@@ -88,7 +88,32 @@ static void module_init(Cpu *c, Module *m) {
     else run_array(c, m->init_array, m->init_array_sz);
 }
 
-static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
+// Scarlet 4.0.0's SDK DT_INIT can call the main module's malloc before
+// the SDK has installed TPIDR_EL0. The allocator reads TPIDR_EL0+0x30.
+// An opt-in, guest-mapped bootstrap area allows investigating that early call
+// without mutating the AOT modules or faking the TLR's SDK ThreadPointer slot.
+// The SDK is still responsible for creating its real per-thread TLS object.
+static void scarlet_early_tls_probe(Cpu *c) {
+    if (g_program_id != 0x0100a3d008c5c000ull) return;
+    const char *opt = getenv("SCARLET_EARLY_TLS_PROBE");
+    if (!opt || !*opt || !strcmp(opt, "0")) return;
+    uint64_t known = c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0;
+    LOG("[scarlet/tls] before SDK init: TPIDR=%llx TPIDRRO=%llx TLR.ThreadPointer=%llx\n",
+        (unsigned long long)c->tpidr, (unsigned long long)c->tpidrro, (unsigned long long)known);
+    if (!c->tpidr) {
+        c->tpidr = known ? known : (uint64_t)(uintptr_t)hle_alloc(0x1000);
+        LOG("[scarlet/tls] early TPIDR=%llx (%s); TLR.ThreadPointer left unchanged\n",
+            (unsigned long long)c->tpidr, known ? "existing SDK pointer" : "temporary guest-mapped probe buffer");
+    }
+}
+static void rtld_init_sdk(Cpu *c) {
+    scarlet_early_tls_probe(c);
+    module_init(c, &g_modules[1]);
+    if (g_program_id == 0x0100a3d008c5c000ull && getenv("SCARLET_EARLY_TLS_PROBE"))
+        LOG("[scarlet/tls] after SDK init: TPIDR=%llx TLR.ThreadPointer=%llx\n",
+            (unsigned long long)c->tpidr,
+            (unsigned long long)(c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0));
+}
 static void rtld_init_main(Cpu *c) {
     // rtld initializes dependent subsdk modules before the main game module.
     // Preserve the original two-module path for ZA/LA.
