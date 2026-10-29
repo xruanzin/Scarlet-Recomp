@@ -44,7 +44,7 @@ GENFLAGS := $(GENOPT) -fno-strict-aliasing -Wno-return-type -Wno-unused-label -f
 # the app itself holds none of it
 # (strip: with no generated code the space between the two would be all that's left, and $(if) takes a lone space as
 # true. No comment after the value: make keeps the spaces before it)
-GEN_SRC  := $(strip $(wildcard $(GEN)/main/*.c) $(wildcard $(GEN)/sdk/*.c))
+GEN_SRC  := $(strip $(wildcard $(GEN)/main/*.c) $(wildcard $(GEN)/sdk/*.c) $(wildcard $(GEN)/subsdk0/*.c))
 GEN_OBJ  := $(patsubst %.c,$(B)/obj/%.o,$(patsubst $(GEN)/%,%,$(GEN_SRC))) $(B)/obj/tools/gamelib_entry.o
 RT_SRC   := $(wildcard runtime/*.c runtime/*.cpp) $(wildcard runtime/hle/*.c) $(wildcard runtime/services/*.c) \
             $(wildcard runtime/nvn/*.c) $(wildcard runtime/nvn/maxwell/*.c) runtime/platform/$(PLATFORM).c
@@ -142,7 +142,7 @@ $(B)/obj/%.o: $(GEN)/%.c runtime/cpu.h runtime/simd.h runtime/simd_fp.h
 
 $(B)/obj/tools/gamelib_entry.o: tools/gamelib_entry.c $(GAMELIB_SRCS) $(wildcard $(GEN)/main/main_build_id.txt)
 	@mkdir -p $(dir $@)
-	$(CC) $(GENFLAGS) -DGAMELIB_ID='"$(GAMELIB_FULL_ID)"' -c $< -o $@
+	$(CC) $(GENFLAGS) $(if $(SCARLET_AOT),-DSCARLET_AOT=1) -DGAMELIB_ID='"$(GAMELIB_FULL_ID)"' -c $< -o $@
 $(B)/rt/gamelib.o: $(GAMELIB_SRCS)
 $(B)/rt/gamelib.o: RTFLAGS += -DGAMELIB_ID='"$(GAMELIB_ID)"'
 # the start screen's build of it (runtime/gamebuild.c) uses the same flags
@@ -249,6 +249,14 @@ gen-scarlet:
 	@test -n "$(PY)" || { echo "Python venv missing: run tools/setup_windows.ps1"; exit 2; }
 	"$(PY)" tools/gen.py sdk "$(SCARLET_EXEFS)/sdk" 0x7008000000 "$(GEN)/sdk" --hle runtime/hle/hle_symbols.txt $(GENSIMD) --game scarlet
 	"$(PY)" tools/gen.py main "$(SCARLET_EXEFS)/main" 0x7000000000 "$(GEN)/main" $(GENSIMD) --game scarlet
+
+# Load the additional Scarlet module at a fixed, isolated guest base.  The
+# existing main/sdk generated sources and objects remain untouched.
+SCARLET_SUBSDK0_BASE := 0x7010000000
+gen-scarlet-submodules:
+	@test -n "$(PY)" || { echo "Python venv missing"; exit 2; }
+	@test -f "$(SCARLET_EXEFS)/subsdk0" || { echo "Missing Scarlet subsdk0 NSO"; exit 2; }
+	"$(PY)" tools/gen.py subsdk0 "$(SCARLET_EXEFS)/subsdk0" $(SCARLET_SUBSDK0_BASE) "$(GEN)/subsdk0" --game scarlet $(GENSIMD)
 
 gen-objs: $(GEN_OBJ)
 
@@ -373,7 +381,7 @@ appimages:
 smoketest:
 	tools/linux/smoketest.sh
 
-.PHONY: dmg all gen gen-scarlet gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
+.PHONY: dmg all gen gen-scarlet gen-scarlet-submodules gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
 
 build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime/nvn/maxwell/shader.h
 	clang -O1 -fobjc-arc -framework Metal -framework Foundation -o $@ tools/test_shaders.m runtime/nvn/maxwell/translate.c
