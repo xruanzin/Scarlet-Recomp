@@ -6,12 +6,24 @@ on:
       - '.github/workflows/scarlet-preflight.yml'
       - 'tools/scarlet/**'
       - 'tools/gen.py'
+      - 'tools/gamelib_entry.c'
+      - 'runtime/loader.c'
+      - 'runtime/dispatch.c'
+      - 'runtime/main.c'
+      - 'runtime/gamelib.h'
+      - 'runtime/rt.h'
       - 'Makefile'
   pull_request:
     paths:
       - '.github/workflows/scarlet-preflight.yml'
       - 'tools/scarlet/**'
       - 'tools/gen.py'
+      - 'tools/gamelib_entry.c'
+      - 'runtime/loader.c'
+      - 'runtime/dispatch.c'
+      - 'runtime/main.c'
+      - 'runtime/gamelib.h'
+      - 'runtime/rt.h'
       - 'Makefile'
   workflow_dispatch:
 
