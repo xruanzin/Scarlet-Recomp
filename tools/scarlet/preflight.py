@@ -85,6 +85,8 @@ def nsp_info(path):
             raise ValueError(f"{path}: PFS0 entry exceeds NSP size")
         names.append(strings[str_off:end].decode("utf-8", errors="replace"))
     ncas = [name for name in names if name.lower().endswith(".nca")]
+    if not ncas:
+        raise ValueError(f"{path}: NSP contains no .nca entries")
     return {
         "path": str(path.resolve()),
         "pfs0_valid": True,
