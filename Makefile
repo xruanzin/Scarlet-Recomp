@@ -240,6 +240,16 @@ gen:
 	cd tools && ../$(PY) gen.py sdk ../$(EXEFS)/sdk 0x7008000000 ../$(GEN)/sdk --hle ../runtime/hle/hle_symbols.txt $(GENSIMD)
 	cd tools && ../$(PY) gen.py main ../$(EXEFS)/main 0x7000000000 ../$(GEN)/main $(GENSIMD)
 
+# Scarlet is a separate AOT target.  No ZA/LAS game patches and no reuse of their
+# generated module cache.  EXEFS can be an absolute Windows path (quoted).
+# Run with GEN=generated-scarlet B=build/scarlet; this target only LIFTS code.
+# It does NOT make the ZA runtime a playable Scarlet port.
+SCARLET_EXEFS ?= $(EXEFS)
+gen-scarlet:
+	@test -n "$(PY)" || { echo "Python venv missing: run tools/setup_windows.ps1"; exit 2; }
+	"$(PY)" tools/gen.py sdk "$(SCARLET_EXEFS)/sdk" 0x7008000000 "$(GEN)/sdk" --hle runtime/hle/hle_symbols.txt $(GENSIMD) --game scarlet
+	"$(PY)" tools/gen.py main "$(SCARLET_EXEFS)/main" 0x7000000000 "$(GEN)/main" $(GENSIMD) --game scarlet
+
 gen-objs: $(GEN_OBJ)
 
 # Runtime objects only (no generated code, no link): quick compile check
@@ -363,7 +373,7 @@ appimages:
 smoketest:
 	tools/linux/smoketest.sh
 
-.PHONY: dmg all gen gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
+.PHONY: dmg all gen gen-scarlet gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
 
 build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime/nvn/maxwell/shader.h
 	clang -O1 -fobjc-arc -framework Metal -framework Foundation -o $@ tools/test_shaders.m runtime/nvn/maxwell/translate.c
