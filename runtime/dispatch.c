@@ -151,16 +151,42 @@ GuestFn dispatch_lookup(uint64_t addr) {
 #define DCACHE 4096
 static __thread struct { uint64_t addr; GuestFn fn; } dcache[DCACHE];
 
-// Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf, the oldest replaced when full
-#define NJMP 32
-static __thread RtJmp jmps[NJMP];
-static __thread unsigned jmp_next;
+// Guest setjmp sites of this thread (cpu.h RtJmp). A live outer setjmp can survive arbitrarily many
+// distinct inner buffers: a bounded FIFO can lose Scarlet's return to 7000026ca4. Keep stable
+// allocations per buffer (never move a captured host jmp_buf), freed when the host thread exits.
+typedef struct JmpSite { RtJmp j; struct JmpSite *next; } JmpSite;
+static pthread_key_t jmp_key;
+static pthread_once_t jmp_once = PTHREAD_ONCE_INIT;
+static void jmp_sites_free(void *ptr) {
+    JmpSite *p = ptr;
+    while (p) { JmpSite *next = p->next; free(p); p = next; }
+}
+static void jmp_sites_init(void) {
+    if (pthread_key_create(&jmp_key, jmp_sites_free)) FATAL("cannot create setjmp registry key\n");
+}
+static JmpSite *jmp_sites(void) {
+    if (pthread_once(&jmp_once, jmp_sites_init)) FATAL("cannot initialize setjmp registry\n");
+    return pthread_getspecific(jmp_key);
+}
 RtJmp *rt_setjmp_site(Cpu *c, uint64_t ret) {
-    RtJmp *j = NULL;
-    for (int i = 0; i < NJMP && !j; i++) if (jmps[i].buf == c->x[0]) j = &jmps[i];
-    if (!j) j = &jmps[jmp_next++ % NJMP];
-    j->buf = c->x[0], j->ret = ret, j->sp = c->sp;
-    return j;
+    JmpSite *head = jmp_sites(), *p = head;
+    while (p && p->j.buf != c->x[0]) p = p->next;
+    if (!p) {
+        p = calloc(1, sizeof *p);
+        if (!p) FATAL("cannot allocate setjmp site\n");
+        p->next = head;
+        if (pthread_setspecific(jmp_key, p)) {
+            free(p);
+            FATAL("cannot register setjmp site\n");
+        }
+    }
+    p->j.buf = c->x[0], p->j.ret = ret, p->j.sp = c->sp;
+    return &p->j;
+}
+static RtJmp *rt_findjmp(Cpu *c) {
+    for (JmpSite *p = jmp_sites(); p; p = p->next)
+        if (p->j.buf && p->j.ret == c->pc && p->j.sp == c->sp) return &p->j;
+    return NULL;
 }
 
 __attribute__((noinline)) static GuestFn dispatch_slow(Cpu *c) {
@@ -178,8 +204,8 @@ __attribute__((noinline)) static GuestFn dispatch_slow(Cpu *c) {
         if (overrides[i].addr == pc) return overrides[i].fn;
     GuestFn f = dispatch_lookup(pc);
     if (!f) {
-        for (int i = 0; i < NJMP; i++)  // a guest longjmp returning to its setjmp
-            if (jmps[i].buf && jmps[i].ret == pc && jmps[i].sp == c->sp) longjmp(jmps[i].host, 1);
+        RtJmp *j = rt_findjmp(c);  // a guest longjmp returning to its setjmp
+        if (j) longjmp(j->host, 1);
         uint64_t off;
         const char *s = loader_symbol_at(c->x[30], &off);
         FATAL("no function at %llx (lr=%llx %s+%llx)\n", pc, c->x[30], s ? s : "?", off);
