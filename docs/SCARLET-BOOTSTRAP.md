@@ -215,6 +215,33 @@ Then set the environment variable only for a short supervised boot; inspect
 the `[scarlet/tls]` lines and the **first new crash**, if any. Unset it
 (`Remove-Item Env:SCARLET_EARLY_TLS_PROBE`) to return to prior behavior.
 
+## Second boot crash: early main!malloc singleton (A/B experiment)
+
+The first opt-in `SCARLET_EARLY_TLS_PROBE=1` passed the initial null
+`TPIDR_EL0 + 0x30` read, but the **same** guest `main!malloc` crashed
+on a null address later, after visiting its guarded allocator singleton.
+In the v4.0.0 generated `main_942.c`, the allocator uses the guarded
+pointer at guest `0x7004759430` and a backing pointer at
+`0x7004759418`. This suggests the main allocator's backing state
+is not initialized at the point the SDK calls `malloc`.
+
+`SCARLET_MAIN_INIT_FIRST=1` is an **additional diagnostic A/B option
+for this exact Scarlet program ID**: it logs those three allocator
+globals and runs main's `DT_INIT` before SDK's `DT_INIT`. It guards
+against a second main initialization in the later callback, but does
+not change `subsdk0` initialization. This is **not** the proven correct
+runtime-loader initialization order, and main's initializer can depend
+on SDK state: crashes or hang may still occur. Do not ship it enabled.
+Keep `SCARLET_EARLY_TLS_PROBE=1` for a consistent A/B run.
+
+Relink the existing cache with `link_probe.py --jobs 2` (only
+`runtime/main.c` changed), then inspect the earliest
+`[scarlet/alloc]` and `[scarlet/init]` messages, `init` lines,
+and first new exception. Disable both environment variables after
+the isolated test. The first boot test's `romfs` junction pointed
+at ExeFS, **not real merged Scarlet RomFS**. Replace that with actual
+merged RomFS before trying content loading or declaring gameplay.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
