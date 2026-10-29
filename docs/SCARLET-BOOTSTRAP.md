@@ -331,6 +331,53 @@ The test RomFS junction still targets ExeFS (38 files); never treat
 those reads as evidence that Scarlet's actual assets are mounted.
 Use correctly merged 4.0.0 RomFS before the next real game-content test.
 
+## 2026-10-29: first presented frames; fix test RomFS before judging gameplay
+
+The next local Windows trace with corrected btm:u reached shader pipelines,
+NVN presents and at least frame 80 with no guest abort. The profiler
+reported around 13.9-14.7 fps during shader-heavy startup, ~483-514
+draws, ~2,325-2,740 passes and 372-443 flushes in selected frames.
+This verifies real guest rendering calls but **not yet valid Scarlet
+graphics or playable game content**. The test process was explicitly
+terminated by the PowerShell harness after 15 s, so no later exit
+or crash should be inferred.
+
+The user's test link still points to the merged ExeFS:
+  scarlet-boot-test/romfs -> D:/Pokemon Scarlet/base=update
+
+That folder has 38 files, including executable modules, NOT the
+Scarlet game's resource RomFS. The host's virtual RomFS image builder
+happily indexed these unrelated files, causing misleading graphics
+and filesystem experiments. Fix this before investigating blank or
+incorrect visuals. Do **not** copy gigabytes of data into the
+Scarlet-Recomp build tree or rerun the AOT.
+
+A safe Windows PowerShell helper is available:
+
+1. In D:/Scarlet-Recomp run:
+   .\tools\scarlet\romfs_link.ps1
+   It lists possible extracted RomFS folder paths, without changing
+   anything.
+2. Once a real extracted and *correctly base+update 4.0.0 merged*
+   RomFS folder is available:
+   .\tools\scarlet\romfs_link.ps1 -Candidate "D:\REAL\RomFS"
+   This validates a plausible folder and rejects ExeFS.
+3. If valid, run the same command with -Apply.
+   It replaces **only the test junction**, keeping original game files.
+
+The helper does **not** extract or merge NS(P/X) content and cannot
+prove update version from the folder alone. A raw romfs.bin file
+requires a separate setup: the inherited runtime accepts a
+romfs.bin next to exefs, but the junction helper only handles folders.
+Inspect the actual extracted base/update data before choosing a source.
+
+Once RomFS is correct, enable LARECOMP_LOG_FILES=1 for the next
+controlled 15-30 s boot so the log shows real asset paths. Report
+whether the displayed frames show the correct Scarlet image; do not
+infer it from frame counters alone. The early TLS and allocator
+environment switches remain diagnostic-only and lack correct
+guest-heap lifecycle/free semantics.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
