@@ -270,6 +270,35 @@ the first new crash, then unset both experimental variables.
 The executable still uses the inherited ZA host and its RomFS setup
 is not yet a correct Scarlet content mount.
 
+## First successful SDK / Vulkan init and csrng busy-loop
+
+An isolated boot with SCARLET_EARLY_TLS_PROBE=1 and
+SCARLET_BOOTSTRAP_ALLOCATOR=1 advanced past main/sdk/subsdk0 constructors,
+initialized NVN/Vulkan, the window, controller, audio, fonts, and guest
+threads. The next captured log had **5,733 identical calls** to
+STUB csrng cmd 0: the old fallback returned success without writing
+random data to the request's output B buffer. This is not a valid
+implementation and plausibly causes the busy-loop.
+
+A real registered service now handles csrng cmd 0 with the operating
+system's CSPRNG: BCryptGenRandom on Windows and /dev/urandom on Unix.
+It fills B/C output buffers and reports error when the descriptor is
+invalid or the OS request fails. It logs the first three successful
+calls only. This fixes the bogus stub, **not** the guest TLS allocator;
+both experimental bootstrap variables are still required for the
+next controlled first-boot comparison, never for a production release.
+
+Retest after an incremental link_probe.py --jobs 2 with the same AOT
+cache ID. Check for [csrng] filled ..., further game-service logs,
+and any new exception; no main/sdk/subsdk0 regeneration is needed.
+
+**Critical content caveat:** the current test root's romfs junction
+was incorrectly pointed at the ExeFS. The log served 38 files from
+that junction; those are not validated Scarlet RomFS assets. Replace
+the junction with an extracted, correctly merged base+update Scarlet
+RomFS before drawing conclusions about game visuals or gameplay.
+Do not use these diagnostic results as proof the game is playable.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
