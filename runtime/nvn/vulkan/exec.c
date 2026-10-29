@@ -2463,6 +2463,27 @@ static VkFormat vertex_format_supported(VkFormat f) {
     }
 }
 
+// Source element sizes for validating the actual NVN vertex layout. Fallbacks
+// from RGB8/RGB16 to RGBA8/RGBA16 require more bytes than the guest supplied;
+// report them explicitly rather than silently treating this as a valid format.
+static unsigned vertex_source_bytes(uint32_t f) {
+    if (f >= 0x01 && f <= 0x04) return 1;
+    if (f >= 0x05 && f <= 0x09) return 2;
+    if (f >= 0x0A && f <= 0x0C) return 4;
+    if (f >= 0x0D && f <= 0x10) return 2;
+    if (f >= 0x11 && f <= 0x15) return 4;
+    if (f >= 0x16 && f <= 0x18) return 8;
+    if (f >= 0x19 && f <= 0x1C) return 3;
+    if (f >= 0x1D && f <= 0x21) return 6;
+    if (f >= 0x22 && f <= 0x24) return 12;
+    if (f >= 0x25 && f <= 0x28) return 4;
+    if (f >= 0x29 && f <= 0x2D) return 8;
+    if (f >= 0x2E && f <= 0x30) return 16;
+    if (f == 0x3D || f == 0x3F || f == 0x40 || f == 0x69) return 4;
+    if (f == 0x51) return 1;
+    return 0;
+}
+
 static VkBlendFactor blend_factor(uint8_t f) {
     switch (f) {
     case 1: return VK_BLEND_FACTOR_ZERO;
@@ -2641,10 +2662,31 @@ static void pipe_key_fill(PipeKey *k, Prog *pr, const PipeIn *in, const VkFormat
             l->used_streams |= 1u << ZERO_BINDING;
             continue;
         }
-        l->attr_fmt[i] = vertex_format_supported(vertex_format(fmt));
+        VkFormat native = vertex_format(fmt);
+        VkFormat supported = vertex_format_supported(native);
+        l->attr_fmt[i] = supported;
         l->attr_off[i] = off;
         l->attr_bind[i] = stream;
         l->used_streams |= 1u << stream;
+        // A passive, capped audit for Scarlet's close-range LOD meshes.
+        // An unsupported RGB8/16 attribute must be repacked before the
+        // RGBA fallback can be correct (this is NOT done by changing VkFormat).
+        static int vertex_audit = -1;
+        static unsigned vertex_warnings;
+        if (vertex_audit < 0) vertex_audit = ENV("LARECOMP_VK_VERTEX_AUDIT") != NULL;
+        if (vertex_audit && vertex_warnings < 80) {
+            unsigned src_bytes = vertex_source_bytes(fmt);
+            unsigned stride = stream < (uint32_t)in->nstream ? in->stream[stream][0] : 0;
+            unsigned fetched_bytes = src_bytes;
+            if (native != supported && src_bytes == 3) fetched_bytes = 4;
+            if (native != supported && src_bytes == 6) fetched_bytes = 8;
+            if (native != supported || (stride && src_bytes && off + src_bytes > stride)) {
+                vertex_warnings++;
+                LOG("[vtxaudit] attr %d fmt %#x VkFormat %d -> %d stream %u offset %u stride %u sourceBytes %u fetchBytes %u%s\n",
+                    i, fmt, (int)native, (int)supported, stream, off, stride,
+                    src_bytes, fetched_bytes, native != supported ? " UNSAFE_FALLBACK" : " OUTSIDE_STRIDE");
+            }
+        }
     }
     for (int s = 0; s < 16; s++) {
         if (!(l->used_streams & (1u << s))) continue;
