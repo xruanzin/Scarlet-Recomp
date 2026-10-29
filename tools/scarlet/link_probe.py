@@ -59,7 +59,7 @@ def main(argv=None):
             *AOT_FLAGS, "SCARLET_AOT=1", "all",
         ]
         run_logged(cmd, build / "scarlet-link.log")
-        exe = build / "lasrecomp.exe"
+        exe = build / "scarlet.exe"
         dll = build / "lasgame.dll"
         if not (exe.is_file() and dll.is_file() and (build / "lasgame.dll.id").is_file()):
             raise RuntimeError("Build returned success but executable or AOT DLL is missing")
