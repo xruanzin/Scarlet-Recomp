@@ -67,15 +67,37 @@ if ($resolvedCandidate -eq $resolvedExeFS -or (IsExeFs $resolvedCandidate)) {
     throw "RECUSADO: caminho ExeFS, nao RomFS. Nao use main/sdk/subsdk0."
 }
 
-# Only sample 101 files to avoid traversing a giant extracted RomFS.
-$sample = @(Get-ChildItem -LiteralPath $resolvedCandidate -File -Recurse |
-    Select-Object -First 101)
-if ($sample.Count -lt 101) {
-    throw "RECUSADO: apenas $($sample.Count) arquivos. Nao parece um RomFS completo."
-}
+# Scarlet stores most game resources in a small number of huge archives.
+# Do NOT infer completeness from the number of loose files (24-30 is plausible).
+$files = @(Get-ChildItem -LiteralPath $resolvedCandidate -File -Recurse -Force)
+if (-not $files.Count) { throw "RECUSADO: pasta RomFS vazia." }
+$totalBytes = ($files | Measure-Object -Property Length -Sum).Sum
+$gb = [math]::Round($totalBytes / 1GB, 2)
 Write-Host "Candidato: $resolvedCandidate"
-Write-Host "Mais de 100 arquivos e sem NSO/NPDM do ExeFS."
-Write-Warning "Esta checagem NAO comprova o merge correto da base com update 4.0.0."
+Write-Host "Arquivos: $($files.Count); tamanho total: $gb GB"
+Write-Host "Maiores arquivos:"
+$files | Sort-Object Length -Descending | Select-Object -First 10 |
+    ForEach-Object {
+        $relative = $_.FullName.Substring($resolvedCandidate.TrimEnd('\').Length).TrimStart('\')
+        Write-Host ("  {0,9:N1} MB  {1}" -f ($_.Length / 1MB), $relative)
+    }
+
+# Genuine Scarlet/Violet RomFS archives normally contain arc/data.trpfd
+# (index) and arc/data.trpfs (archive). A partial update layer may have
+# only one of them: never mislabel such a folder as a full merged game.
+$descriptor = Join-Path $resolvedCandidate 'arc\data.trpfd'
+$archive = Join-Path $resolvedCandidate 'arc\data.trpfs'
+$hasDescriptor = (Test-Path -LiteralPath $descriptor -PathType Leaf) -and
+                 ((Get-Item -LiteralPath $descriptor).Length -gt 0)
+$hasArchive = (Test-Path -LiteralPath $archive -PathType Leaf) -and
+              ((Get-Item -LiteralPath $archive).Length -gt 0)
+Write-Host "arc/data.trpfd: $hasDescriptor"
+Write-Host "arc/data.trpfs: $hasArchive"
+if (-not ($hasDescriptor -and $hasArchive)) {
+    Write-Warning "Sem o par data.trpfd + data.trpfs. Pode ser apenas um overlay de update/mod ou uma extracao incompleta."
+    throw "RECUSADO: nao foi confirmado o arquivo principal do Scarlet. Preserve esta pasta e inspecione os dados."
+}
+Write-Warning "Arquivos-base presentes, mas nao e possivel verificar somente pela pasta se o update 4.0.0 foi aplicado."
 
 if (-not $Apply) {
     Write-Host "Somente validacao. Use -Apply para trocar a junction de teste."
