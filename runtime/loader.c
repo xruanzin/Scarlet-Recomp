@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "rt.h"
+#include "gamelib.h"
 
 Module g_modules[4];
 int g_nmodules;
@@ -191,12 +192,27 @@ static void relocate(Module *m) {
 
 void loader_load(const char *exefs) {
     char path[1024];
-    static const struct { const char *name; uint64_t base; } mods[] = {{"main", MAIN_BASE}, {"sdk", SDK_BASE}};
-    for (unsigned i = 0; i < 2; i++) {
-        Module *m = &g_modules[g_nmodules++];
+    // The original two-module ZA/LA path is unchanged.  Scarlet's AOT library
+    // explicitly advertises a third module; never infer it merely from a filename.
+    const GameLibTables *tables = gamelib_tables();
+    const bool use_subsdk0 = tables && tables->subsdk0_count && *tables->subsdk0_count;
+    static const struct { const char *name; uint64_t base; } mods[] = {
+        {"main", MAIN_BASE}, {"sdk", SDK_BASE}, {"subsdk0", SUBSDK0_BASE}
+    };
+    const unsigned count = use_subsdk0 ? 3 : 2;
+    g_nmodules = 0;
+    memset(g_modules, 0, sizeof g_modules);
+    for (unsigned i = 0; i < count; i++) {
+        Module *m = &g_modules[g_nmodules];
         m->name = mods[i].name;
         snprintf(path, sizeof path, "%s/%s", exefs, m->name);
         load_nso(m, path, mods[i].base);
+        g_nmodules++;
+        // Module bases are fixed at AOT generation; fail on overlap rather than
+        // silently mapping executable bytes over another module/HLE region.
+        const uint64_t next = i == 0 ? SDK_BASE : i == 1 ? SUBSDK0_BASE : HLE_BASE;
+        if (m->size > next - m->base)
+            FATAL("%s image overlaps the next guest memory region\n", m->name);
     }
     for (int i = 0; i < g_nmodules; i++) relocate(&g_modules[i]);
 }
