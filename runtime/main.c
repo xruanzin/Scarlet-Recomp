@@ -106,19 +106,47 @@ static void scarlet_early_tls_probe(Cpu *c) {
             (unsigned long long)c->tpidr, known ? "existing SDK pointer" : "temporary guest-mapped probe buffer");
     }
 }
+// A separate opt-in A/B probe for the Scarlet v4.0.0 startup dependency:
+ // main!malloc consults a guarded global allocator pointer at 0x7004759430,
+ // loaded from 0x7004759418, before the SDK finishes its DT_INIT.
+ // Log those observed guest addresses and, only when explicitly requested,
+ // try running main's DT_INIT before the SDK's. This order is experimental:
+ // the main initializer may itself depend on SDK initialization.
+static bool scarlet_main_init_early;
+static bool scarlet_probe_enabled(const char *name) {
+    const char *v = getenv(name);
+    return g_program_id == 0x0100a3d008c5c000ull && v && *v && strcmp(v, "0");
+}
+static void scarlet_allocator_probe(const char *when) {
+    if (!scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) return;
+    const uint64_t *seed = (const uint64_t *)(uintptr_t)0x7004759418ull;
+    const uint64_t *instance = (const uint64_t *)(uintptr_t)0x7004759430ull;
+    const uint8_t *guard = (const uint8_t *)(uintptr_t)0x7004759438ull;
+    LOG("[scarlet/alloc] %s: backing=%llx singleton=%llx guard=%02x\n",
+        when, (unsigned long long)*seed, (unsigned long long)*instance, (unsigned)*guard);
+}
 static void rtld_init_sdk(Cpu *c) {
     scarlet_early_tls_probe(c);
+    if (scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) {
+        LOG("[scarlet/init] EXPERIMENT: main DT_INIT before sdk DT_INIT (no double init)\n");
+        scarlet_allocator_probe("before main DT_INIT");
+        module_init(c, &g_modules[0]);
+        scarlet_main_init_early = true;
+        scarlet_allocator_probe("after main DT_INIT");
+    }
+    scarlet_allocator_probe("before sdk DT_INIT");
     module_init(c, &g_modules[1]);
-    if (g_program_id == 0x0100a3d008c5c000ull && getenv("SCARLET_EARLY_TLS_PROBE"))
+    if (scarlet_probe_enabled("SCARLET_EARLY_TLS_PROBE"))
         LOG("[scarlet/tls] after SDK init: TPIDR=%llx TLR.ThreadPointer=%llx\n",
             (unsigned long long)c->tpidr,
             (unsigned long long)(c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0));
 }
 static void rtld_init_main(Cpu *c) {
-    // rtld initializes dependent subsdk modules before the main game module.
-    // Preserve the original two-module path for ZA/LA.
+    // Keep the original order by default; with the explicit Scarlet A/B
+    // experiment, main DT_INIT already ran, so it must not run twice.
     for (int i = g_nmodules - 1; i >= 2; i--) module_init(c, &g_modules[i]);
-    module_init(c, &g_modules[0]);
+    if (!scarlet_main_init_early) module_init(c, &g_modules[0]);
+    else LOG("[scarlet/init] skipping main DT_INIT: already ran in first callback\n");
 }
 static void rtld_fini(Cpu *c) { (void)c; LOG("nnMain returned\n"); }
 
@@ -220,6 +248,7 @@ static void teardown(void) {
 }
 
 static void boot(const char *root) {
+    scarlet_main_init_early = false;  // also reset on in-place reboots
     char exefs[1024], romfs[1024], npdm_path[1024];
     snprintf(exefs, sizeof exefs, "%s/exefs", root);
     snprintf(romfs, sizeof romfs, "%s/romfs", root);
