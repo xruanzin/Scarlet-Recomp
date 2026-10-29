@@ -3205,7 +3205,11 @@ static uint64_t cache_key(const uint8_t *blob, size_t max_size, int stage, const
         if ((((const uint64_t *)code)[i] & 0xfff0000000000000ull) == 0xe250000000000000ull) return 0;  // BRX
     // (the straight-line switch is in the key: on and off translations of one shader differ, and a GPU that changes
     // the default - AMD - or a player's LARECOMP_SHADER_FLAT must not load the other form)
-    uint64_t v[5] = {(uint64_t)stage, max_size, maxwell_gmem_base, maxwell_gmem_size, (uint64_t)maxwell_flat_on()};
+    // Exact half->float conversion produces different GLSL, so the switch must
+    // participate in the disk key. Previously EXACT_H2F reused cached native GLSL.
+    const char *half_env = getenv("LARECOMP_VK_EXACT_H2F");
+    uint64_t v[6] = {(uint64_t)stage, max_size, maxwell_gmem_base, maxwell_gmem_size,
+                     (uint64_t)maxwell_flat_on(), (uint64_t)(half_env && atoi(half_env) != 0)};
     uint64_t h = fnv(fnv(fnv(0xcbf29ce484222325ull, cache_build, sizeof cache_build), v, sizeof v), key, sizeof *key);
     h = fnv(h, blob, (size_t)(code - blob) + end * 8);
     return h ? h : 1;
