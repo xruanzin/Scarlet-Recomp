@@ -60,6 +60,13 @@ static void load_nso(Module *m, const char *path, uint64_t base) {
     for (int i = 0; i < 3; i++) memcpy(seg[i], raw + 0x10 + i * 0x10, 12);
     uint32_t bss = *(uint32_t *)(raw + 0x3C);
     uint64_t size = (seg[2][1] + seg[2][2] + bss + 0x3FFF) & ~0x3FFFull;
+    // Check bounds before committing/copying, not after an overlap has
+    // already corrupted another module or a reserved host-service region.
+    const uint64_t limit = base == MAIN_BASE ? SDK_BASE :
+                           base == SDK_BASE ? SUBSDK0_BASE :
+                           base == SUBSDK0_BASE ? HLE_BASE : 0;
+    if (!limit || size > limit - base)
+        FATAL("%s exceeds its reserved guest module address range\n", path);
     plat_commit(base, size);  // inside the guest window: zero-filled, read/write
     for (int i = 0; i < 3; i++) {
         uint32_t csize = *(uint32_t *)(raw + 0x60 + i * 4);
