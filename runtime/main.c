@@ -106,6 +106,48 @@ static void scarlet_early_tls_probe(Cpu *c) {
             (unsigned long long)c->tpidr, known ? "existing SDK pointer" : "temporary guest-mapped probe buffer");
     }
 }
+// Main's malloc (f_7002b7d830) dispatches via TLS[0x30], then invokes
+// vtable[0x10] with (allocator, bytes, alignment) in x0/x1/x2.
+// The optional diagnostic shim below implements ONLY this allocation slot.
+// Unlike the earlier zeroed TLS probe, it returns real guest-mapped buffers.
+// It does not implement free/realloc/heap ownership: never enable in release.
+static void scarlet_bootstrap_allocate(Cpu *c) {
+    uint64_t size = c->x[1], alignment = c->x[2];
+    if (alignment < 8) alignment = 8;
+    if (alignment > 65536 || (alignment & (alignment - 1)) || size > (16ull << 20))
+        FATAL("[scarlet/bootstrap] unsupported early allocation size=%llu align=%llu\n",
+            (unsigned long long)size, (unsigned long long)alignment);
+    uintptr_t raw = (uintptr_t)hle_alloc(size + alignment - 1);
+    c->x[0] = (uint64_t)((raw + alignment - 1) & ~(uintptr_t)(alignment - 1));
+    static unsigned count;
+    if (count++ < 20)
+        LOG("[scarlet/bootstrap] alloc #%u size=%llu align=%llu result=%llx\n",
+            count, (unsigned long long)size, (unsigned long long)alignment,
+            (unsigned long long)c->x[0]);
+}
+static void scarlet_bootstrap_allocator_probe(Cpu *c) {
+    if (g_program_id != 0x0100a3d008c5c000ull) return;
+    const char *opt = getenv("SCARLET_BOOTSTRAP_ALLOCATOR");
+    if (!opt || !*opt || !strcmp(opt, "0")) return;
+    if (!c->tpidr) {
+        LOG("[scarlet/bootstrap] no TPIDR: enable SCARLET_EARLY_TLS_PROBE=1\n");
+        return;
+    }
+    uint64_t *slot = (uint64_t *)(uintptr_t)(c->tpidr + 0x30);
+    if (*slot) {
+        LOG("[scarlet/bootstrap] TLS already has allocator at %llx; not replacing\n",
+            (unsigned long long)*slot);
+        return;
+    }
+    uint64_t *vtable = hle_alloc(0x40);
+    uint64_t *object = hle_alloc(0x40);
+    vtable[2] = hle_register("<scarlet_bootstrap_allocate>", scarlet_bootstrap_allocate);
+    object[0] = (uint64_t)(uintptr_t)vtable;
+    *slot = (uint64_t)(uintptr_t)object;
+    LOG("[scarlet/bootstrap] temporary TLS allocator: TPIDR=%llx object=%llx vtable=%llx callback=%llx\n",
+        (unsigned long long)c->tpidr, (unsigned long long)*slot,
+        (unsigned long long)object[0], (unsigned long long)vtable[2]);
+}
 // A separate opt-in A/B probe for the Scarlet v4.0.0 startup dependency:
  // main!malloc consults a guarded global allocator pointer at 0x7004759430,
  // loaded from 0x7004759418, before the SDK finishes its DT_INIT.
@@ -127,6 +169,7 @@ static void scarlet_allocator_probe(const char *when) {
 }
 static void rtld_init_sdk(Cpu *c) {
     scarlet_early_tls_probe(c);
+    scarlet_bootstrap_allocator_probe(c);
     if (scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) {
         LOG("[scarlet/init] EXPERIMENT: main DT_INIT before sdk DT_INIT (no double init)\n");
         scarlet_allocator_probe("before main DT_INIT");
