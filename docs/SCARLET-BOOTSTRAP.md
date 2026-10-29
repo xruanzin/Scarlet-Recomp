@@ -181,12 +181,12 @@ py -3 tools\\scarlet\\link_probe.py --exefs "D:\\Pokemon Scarlet\\base=update" -
 py -3 tools\\scarlet\\link_probe.py --exefs "D:\\Pokemon Scarlet\\base=update" --cache-id eb6deb908752b9c6 --jobs 2
 ```
 
-Successful linking produces `build/scarlet/<id>/lasrecomp.exe`,
+Successful linking produces `build/scarlet/<id>/scarlet.exe`,
 `lasgame.dll`, `scarlet-link.log`, and a
 `scarlet-link-complete.json` marker. **This is only an experimental link
 of the existing Z-A-derived runtime**: startup/HLE, Scarlet NPDM/FS
 assumptions, updated RomFS, graphics and playable frames are not yet
-validated. The resulting executable is not a Scarlet release and should not
+validated. The resulting `scarlet.exe` is not a Scarlet release and should not
 be distributed as a working port.
 
 ## Remaining blockers before a playable port
