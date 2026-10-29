@@ -130,6 +130,41 @@ python tools/scarlet/test_preflight.py
   The BOTW shader archive assumptions and gameplay-specific constants must
   *not* be blindly copied.
 
+## Extending the user's already compiled AOT with subsdk0 (incremental)
+
+The merged 4.0.0 dump has been validated locally by the user: `main`
+build ID `421c5411b487eb4d...`, updated `sdk`, and `subsdk0`.
+Its ExeFS files are **directly in** `D:\\Pokemon Scarlet\\base=update`;
+do not attempt to apply the encrypted NSP again.
+
+The completed *main/sdk* AOT cache is `eb6deb908752b9c6`. **Do not
+run the full `build_aot.py` again** after updating the Makefile, because its
+source fingerprint changes and will create a new cache. After updating this
+branch in `D:\\Scarlet-Recomp`, run from PowerShell with MSYS2 UCRT64 on PATH:
+
+```powershell
+cd "D:\\Scarlet-Recomp"
+git status --short
+git pull --ff-only
+$env:MSYSTEM = "UCRT64"
+$env:PATH = "C:\\msys64\\ucrt64\\bin;C:\\msys64\\usr\\bin;$env:PATH"
+py -3 tools\\scarlet\\extend_subsdk0.py --exefs "D:\\Pokemon Scarlet\\base=update" --cache-id eb6deb908752b9c6 --jobs 2
+```
+
+The script requires an existing successful `aot-complete.json`, checks the
+actual cached main ID, and generates/compiles **only** `subsdk0` at guest
+base `0x7010000000`. The other two modules' C and objects are retained.
+`subsdk0-complete.json` records this separate incremental stage. A
+`--check-only` option can validate the cache with no generation.
+
+On this development branch, the AOT library interface now has an optional
+third function-address table (ABI 2), and the loader/dispatcher load,
+relocate, dispatch, and initialize `subsdk0` when the table is present.
+The original Z-A/LA build path has no third table. This code is
+syntax-checked in CI, **not** game-tested. The current runtime is still
+largely ZA-specific, so do not interpret the extra objects as a complete
+Windows Scarlet build, or run the original ZA launcher as a Scarlet port.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
