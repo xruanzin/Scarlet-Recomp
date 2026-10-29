@@ -42,7 +42,7 @@ jobs:
           python-version: '3.12'
       - name: Syntax and synthetic input checks
         run: |
-          python -m py_compile tools/scarlet/preflight.py tools/scarlet/build_aot.py tools/scarlet/extend_subsdk0.py tools/scarlet/test_preflight.py tools/scarlet/test_subsdk.py tools/gen.py
+          python -m py_compile tools/scarlet/preflight.py tools/scarlet/build_aot.py tools/scarlet/extend_subsdk0.py tools/scarlet/link_probe.py tools/scarlet/test_preflight.py tools/scarlet/test_subsdk.py tools/gen.py
           python tools/scarlet/test_preflight.py
           python tools/scarlet/test_subsdk.py
       - name: Dry-run the Scarlet Makefile target (Ubuntu)
