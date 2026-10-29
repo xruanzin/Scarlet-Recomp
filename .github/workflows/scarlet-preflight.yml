@@ -40,6 +40,6 @@ jobs:
           grep -q -- '--game scarlet' scarlet-make-dry-run.txt
           make -n PY=python GEN=generated-scarlet/dry-run B=build/scarlet/dry-run SCARLET_EXEFS=/tmp/exefs gen-scarlet-submodules > scarlet-sub-make-dry-run.txt
           grep -q -- '0x7010000000' scarlet-sub-make-dry-run.txt
-          cc -std=gnu11 -fsyntax-only -Iruntime -DSCARLET_AOT=1 tools/gamelib_entry.c runtime/loader.c runtime/dispatch.c
+          clang -std=gnu11 -fsyntax-only -Wno-format -Iruntime -DSCARLET_AOT=1 tools/gamelib_entry.c runtime/loader.c runtime/dispatch.c
       - name: Confirm no game files are used
         run: echo "Synthetic-only validation. No AOT execution or gameplay certification."
