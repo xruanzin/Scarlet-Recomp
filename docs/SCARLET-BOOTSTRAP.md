@@ -299,6 +299,38 @@ the junction with an extracted, correctly merged base+update Scarlet
 RomFS before drawing conclusions about game visuals or gameplay.
 Do not use these diagnostic results as proof the game is playable.
 
+## Next guest abort after csrng: btm:u object and SetTerminateResult
+
+The next Windows log confirmed that csrng now fills 4 random bytes
+instead of repeating 5,733 fake responses. The guest progressed until
+btm:u cmd 0, followed immediately by application functions cmd 22
+and svcBreak with a zero Result.
+
+Verified Horizon IPC contracts:
+- btm:u cmd 0 is GetCore and must return IBtmUserCore (an IPC object).
+  The former generic stub returned no object while claiming success.
+- IApplicationFunctions cmd 22 is SetTerminateResult (u32), not the
+  failure's origin. Reporting Result 0 does not diagnose the cause.
+
+New btm:u implementation returns an actual IBtmUserCore object, an
+unsignalled event and valid success flag for its BLE event acquisitions,
+and zero discovered devices for supported query commands. It does not
+emulate BLE hardware; unsupported commands now return an error rather
+than silent success. The applet service logs SetTerminateResult and
+its input value, without swallowing the guest's own abort.
+
+Build the **runtime only**, with the existing AOT cache:
+  py -3 tools/scarlet/link_probe.py --exefs "D:\Pokemon Scarlet\base=update" --cache-id eb6deb908752b9c6 --jobs 2
+
+To compare the new startup trace, temporarily enable
+SCARLET_EARLY_TLS_PROBE=1 and SCARLET_BOOTSTRAP_ALLOCATOR=1, and
+keep SCARLET_MAIN_INIT_FIRST unset. The two TLS/allocator probes are
+not production-ready.
+
+The test RomFS junction still targets ExeFS (38 files); never treat
+those reads as evidence that Scarlet's actual assets are mounted.
+Use correctly merged 4.0.0 RomFS before the next real game-content test.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
