@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import extend_subsdk0
+import link_probe
 from preflight import KNOWN_MAIN_PREFIXES
 
 
@@ -23,6 +24,8 @@ class ExistingAotCacheTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.patch_root = patch.object(extend_subsdk0, "ROOT", self.root)
         self.patch_root.start()
+        self.patch_link_root = patch.object(link_probe, "ROOT", self.root)
+        self.patch_link_root.start()
         self.exefs = self.root / "exefs"
         self.exefs.mkdir()
         self.main_id = KNOWN_MAIN_PREFIXES["4.0.0"] + ("00" * 24)
@@ -45,6 +48,7 @@ class ExistingAotCacheTests(unittest.TestCase):
         }))
 
     def tearDown(self):
+        self.patch_link_root.stop()
         self.patch_root.stop()
         self.tmp.cleanup()
 
@@ -69,6 +73,25 @@ class ExistingAotCacheTests(unittest.TestCase):
         self.assertEqual(extend_subsdk0.main([
             "--exefs", str(self.exefs), "--cache-id", self.cache_id, "--check-only",
         ]), 1)
+
+    def test_link_probe_requires_subsdk_completion(self):
+        self.assertEqual(link_probe.main([
+            "--exefs", str(self.exefs), "--cache-id", self.cache_id, "--check-only",
+        ]), 1)
+
+    def test_link_probe_accepts_completed_subsdk_cache_without_building(self):
+        sub_id = "1122334455667788" + ("00" * 24)
+        (self.b / "subsdk0-complete.json").write_text(json.dumps({
+            "cache_id": self.cache_id, "main_build_id": self.main_id,
+            "subsdk0_build_id": sub_id,
+        }))
+        (self.b / "obj" / "subsdk0").mkdir(parents=True)
+        (self.b / "obj" / "subsdk0" / "subsdk0_table.o").write_bytes(b"synthetic")
+        (self.b / "obj" / "tools").mkdir(parents=True)
+        (self.b / "obj" / "tools" / "gamelib_entry.o").write_bytes(b"synthetic")
+        self.assertEqual(link_probe.main([
+            "--exefs", str(self.exefs), "--cache-id", self.cache_id, "--check-only",
+        ]), 0)
 
     def test_rejects_invalid_cache_id(self):
         with self.assertRaisesRegex(ValueError, "16 lower-case"):
