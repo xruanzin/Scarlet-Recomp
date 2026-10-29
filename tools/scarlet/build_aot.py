@@ -107,7 +107,8 @@ def main(argv=None):
         if done.exists():
             saved = json.loads(done.read_text(encoding="utf-8"))
             if saved.get("fingerprint") == stamp and (output / "obj/main/main_table.o").is_file() and (output / "obj/sdk/sdk_table.o").is_file():
-                print(f"AOT cache hit; unchanged objects preserved: {output}")
+                print(f"AOT cache hit; checking incremental objects: {output}")
+                run_logged(make_cmd("gen-objs", gen, build, a.jobs), log)
                 return 0
         run_logged(make_cmd("gen-scarlet", gen, build, 1, str(exefs)), log)
         run_logged(make_cmd("gen-objs", gen, build, a.jobs), log)
