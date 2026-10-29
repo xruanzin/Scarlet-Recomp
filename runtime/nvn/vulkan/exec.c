@@ -4815,8 +4815,10 @@ static bool xm_on(void) {
         const char *e = ENV("LARECOMP_VK_XFB_MIRROR");
         int cs = g_settings.gpu_compat[GPU_XFB_MIRROR];  // (F1 > Compatibility)
         on = e ? atoi(e) != 0 : cs != GPU_AUTO ? cs == GPU_ON : g_vk.props.vendorID != 0x1002;
-        if (!on && !e) LOG("[vk] transform feedback mirror off (%s; LARECOMP_VK_XFB_MIRROR=1: on)\n",
-                           cs == GPU_OFF ? "F1 > Compatibility" : "this AMD GPU, F1 > Compatibility to turn it on");
+        if (e) LOG("[vk] transform feedback mirror %s (LARECOMP_VK_XFB_MIRROR=%s; explicit)\n",
+                   on ? "on" : "off", e);
+        else if (!on) LOG("[vk] transform feedback mirror off (%s; LARECOMP_VK_XFB_MIRROR=1: on)\n",
+                          cs == GPU_OFF ? "F1 > Compatibility" : "this AMD GPU, F1 > Compatibility to turn it on");
     }
     return on && g_vk.host_import;
 }
@@ -5292,7 +5294,7 @@ static bool guest_direct(int kind, uint64_t addr, uint64_t size, VkBuffer *buf, 
         return true;
     }
     if (addr + size > gwin_base + gmem_lo + gmem_size && gwin_want() != gmem_tried) { gmem_tried = gwin_want(); gmem_info(); }
-    if (gmem_lo && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }  // (the mirror needs no import)
+    if (kind == 0 && gmem_lo && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }  // XFB mirrors hold vertex data, NEVER index data
     if (!GM_IN(addr, size)) return false;
     if (vcache_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }
     if (kind == 0 && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }
