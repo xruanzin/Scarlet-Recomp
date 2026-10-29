@@ -30,7 +30,7 @@ jobs:
           python-version: '3.12'
       - name: Syntax and synthetic input checks
         run: |
-          python -m py_compile tools/scarlet/preflight.py tools/scarlet/build_aot.py tools/scarlet/test_preflight.py
+          python -m py_compile tools/scarlet/preflight.py tools/scarlet/build_aot.py tools/scarlet/test_preflight.py tools/gen.py
           python tools/scarlet/test_preflight.py
       - name: Confirm no game files are used
         run: echo "Synthetic-only validation. No AOT execution or gameplay certification."
