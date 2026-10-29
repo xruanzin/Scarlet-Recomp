@@ -91,7 +91,13 @@ GAMELIB  := $(B)/lasgame.so
 GAMELIB_LDFLAGS := -shared -fuse-ld=lld  # (the runtime functions it calls: the app's own, -rdynamic)
 GAMELIB_SHARED := -shared
 else
+# Only the opt-in Scarlet Windows AOT build uses the Scarlet executable name.
+# The original LAS / Z-A build keeps lasrecomp.exe.
+ifeq ($(SCARLET_AOT),1)
+EXE      := $(B)/scarlet.exe
+else
 EXE      := $(B)/lasrecomp.exe
+endif
 DEPINC   := $(if $(DEPS),-I$(DEPS)/include)
 OSFLAGS  := -D_FILE_OFFSET_BITS=64 -D_POSIX_THREAD_SAFE_FUNCTIONS -D_CRT_RAND_S -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
             $(if $(RELEASE),-DLARECOMP_ZIP_BUILD)  # (the log's [info] line: the release zip)
