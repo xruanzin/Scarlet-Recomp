@@ -1688,7 +1688,13 @@ static VkSampler sampler_make(const NvnSamplerDesc *d) {
     }
     static float lodmin = -1;
     if (lodmin < 0) lodmin = ENV("LARECOMP_LOD_MIN") ? (float)atof(ENV("LARECOMP_LOD_MIN")) : 0;
-    if (lodmin > 0 && mf > 1) si.minLod = fmaxf(si.minLod, lodmin);
+    if (lodmin > 0 && mf > 1) {
+        si.minLod = fmaxf(si.minLod, lodmin);
+        // Keep the Vulkan sampler's LOD interval legal even when a material
+        // explicitly caps its maximum mip below the diagnostic minimum.
+        // This also makes LARECOMP_LOD_MIN usable to isolate corrupt base mips.
+        if (si.maxLod < si.minLod) si.maxLod = si.minLod;
+    }
     static int stest = -1;
     if (stest < 0) stest = ENV("LARECOMP_SAMPLER_TEST") != NULL;
     if (stest && mf > 1) { si.minLod = 0; si.maxLod = VK_LOD_CLAMP_NONE; si.anisotropyEnable = VK_TRUE; si.maxAnisotropy = 16; }
