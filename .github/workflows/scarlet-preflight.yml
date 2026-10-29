@@ -32,5 +32,10 @@ jobs:
         run: |
           python -m py_compile tools/scarlet/preflight.py tools/scarlet/build_aot.py tools/scarlet/test_preflight.py tools/gen.py
           python tools/scarlet/test_preflight.py
+      - name: Dry-run the Scarlet Makefile target (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          make -n PY=python GEN=generated-scarlet/dry-run B=build/scarlet/dry-run SCARLET_EXEFS=/tmp/exefs gen-scarlet > scarlet-make-dry-run.txt
+          grep -q -- '--game scarlet' scarlet-make-dry-run.txt
       - name: Confirm no game files are used
         run: echo "Synthetic-only validation. No AOT execution or gameplay certification."
