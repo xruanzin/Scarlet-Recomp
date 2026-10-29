@@ -189,6 +189,32 @@ assumptions, updated RomFS, graphics and playable frames are not yet
 validated. The resulting `scarlet.exe` is not a Scarlet release and should not
 be distributed as a working port.
 
+## First Scarlet boot: SDK malloc before TLS is ready (experimental)
+
+A local Windows boot loaded and relocated `main`, `sdk`, and `subsdk0`,
+but crashed during SDK `DT_INIT` at `main!malloc` (guest
+`f_7002b7d830`). The SDK imports `malloc` through its PLT; the main
+allocator reads `TPIDR_EL0 + 0x30` before `TPIDR_EL0` has been set.
+The SDK itself later installs the real thread pointer from the thread-local
+region's `+0x1f0` field. This is an initialization-order defect, **not**
+proof of a playable game.
+
+For a controlled one-boot probe only, set `SCARLET_EARLY_TLS_PROBE=1`.
+Before running the SDK init callback, the runtime checks the existing
+`TLR.ThreadPointer` field and uses it if available. Otherwise it supplies
+a **temporary, zeroed, guest-mapped 0x1000-byte TLS buffer** to the CPU's
+`TPIDR_EL0`; it intentionally does **not** write a fake pointer to the
+SDK-owned `TLR.ThreadPointer` slot, and does not change the normal Z-A/LA
+path. Its size/layout are unverified, and booting further does not prove
+allocator correctness. Do not enable this by default or ship it as a fix.
+
+After `git pull --ff-only`, rerun `link_probe.py --jobs 2` with the
+**existing cache ID** to incrementally relink only the changed runtime.
+No `build_aot.py`, `extend_subsdk0.py`, or game code generation is required.
+Then set the environment variable only for a short supervised boot; inspect
+the `[scarlet/tls]` lines and the **first new crash**, if any. Unset it
+(`Remove-Item Env:SCARLET_EARLY_TLS_PROBE`) to return to prior behavior.
+
 ## Remaining blockers before a playable port
 
 1. Update extraction and program identity on the actual Windows files;
