@@ -1135,26 +1135,29 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
             uint8_t *lin = expand ? malloc(sz) : s.ptr;
             const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + layer * layer_size + l.offset;
             Unpack u = {src, lin, l.wb, l.hb, l.d, fi->bpb, l.block_height_log2, l.block_depth_log2, row, t->stride, linear};
-            // Scarlet's sky volumetric LUT/noise: exact 32x128x32 RGBA16F texture.
-            // Its Tegra 3D GOB block-depth interpretation is a candidate cause
-            // of the horizontal bands that already appear in the 480x270 sky RT.
-            // Compare the default depth (5) against explicit 0..5 ONLY on this
-            // texture. No override or I/O in normal gameplay.
+            // Pokemon Scarlet's exact 32x128x32 RGBA16F sky volume uses
+            // independent 2D GOB slices (block depth log2=0). The generic
+            // tegra_layout_init() assumes a 32-slice GOB stack (log2=5).
+            // On the user's Switch data, that scrambled Z-slices and caused
+            // visible horizontal bands in the 480x270 sky pass. F10 confirmed
+            // clean sky when the CPU upload was deswizzled with depth 0.
+            // Scope the compatibility fix to this exact texture only; keep
+            // SCARLET_SKY_VOLUME_DEPTH=5 for A/B regression/opt-out.
             bool sky_vol = !linear && !expand && layer == 0 && lv == 0 &&
                            t->target == 2 && t->format == 0x29 &&
                            t->width == 32 && t->height == 128 && t->depth == 32;
             static int sky_bd = -2, sky_dump = -1;
             if (sky_bd == -2) {
                 const char *e = ENV("SCARLET_SKY_VOLUME_DEPTH");
-                sky_bd = e && *e ? atoi(e) : -1;
-                if (sky_bd < 0 || sky_bd > 5) sky_bd = -1;
+                // Correct depth 0 by default for the fingerprinted sky volume.
+                sky_bd = e && *e ? atoi(e) : 0;
+                if (sky_bd < 0 || sky_bd > 5) sky_bd = 0;
             }
             if (sky_dump < 0) sky_dump = ENV("SCARLET_SKY_VOLUME_DUMP") != NULL;
-            bool sky_probe = sky_vol && (sky_bd >= 0 || sky_dump);
-            if (sky_probe) {
-                // Avoid the asynchronous unpack queue so diagnostic bytes are
-                // guaranteed complete when copied into the file.
-                if (sky_bd >= 0) u.bd = (uint32_t)sky_bd;
+            if (sky_vol) {
+                // This 1 MiB texture is uploaded rarely; unpack synchronously.
+                // With -SkyVolumeDump, the data is ready before it is saved.
+                u.bd = (uint32_t)sky_bd;
                 unpack_one(&u);
                 static int logged;
                 if (logged++ < 4) LOG("[scarlet-sky] sky volume 32x128x32 fmt 0x29; unpack block height %u depth %u (guest assumed depth %u), raw %llu bytes\n",
