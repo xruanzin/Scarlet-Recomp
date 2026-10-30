@@ -114,13 +114,20 @@ static int Run(string[] args)
                Convert.ToHexString(id).StartsWith(expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    // NACP display version is required because 3.0.1 and 4.0.0 can share
-    // an NSO Build ID. A build ID alone is NOT an update-version proof.
+    // NACP display version is important: Scarlet 3.0.1 and 4.0.0 may
+    // share a main NSO Build ID. The old importer erroneously required
+    // Control NCAs to use the PATCH title ID (+0x800). Switch Control
+    // NCAs can instead keep the APPLICATION title ID (base).
+    // Consider both forms, restrict to Scarlet, and print what was found.
     bool version400 = false;
-    foreach (var (nca, _) in ncas)
+    var controlVersions = new List<string>();
+    int controlNcas = 0;
+    foreach (var (nca, name) in ncas)
     {
-        if (nca.Header.ContentType != NcaContentType.Control ||
-            nca.Header.TitleId != ScarletBase + 0x800) continue;
+        if (nca.Header.ContentType != NcaContentType.Control) continue;
+        ulong controlId = nca.Header.TitleId;
+        if (controlId != ScarletBase && controlId != ScarletBase + 0x800) continue;
+        controlNcas++;
         using var control = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
         foreach (var e in control.EnumerateEntries("/", "*.nacp"))
         {
@@ -128,12 +135,21 @@ static int Run(string[] args)
             control.OpenFile(ref f.Ref, e.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
             var version = new byte[16];
             f.Get.Read(out _, 0x3060, version).ThrowIfFailure();
-            string shown = System.Text.Encoding.UTF8.GetString(version).TrimEnd('\0');
+            string shown = System.Text.Encoding.UTF8.GetString(version)
+                .TrimEnd('\0', ' ', '\r', '\n');
+            controlVersions.Add(shown);
+            Console.WriteLine($"control: {name} title {controlId:x16} display version '{shown}'");
             if (shown == "4.0.0") version400 = true;
         }
     }
     if (!version400)
-        return Fail("no update Control NACP with display version 4.0.0; verify the selected update NSP");
+    {
+        string discovered = controlVersions.Count > 0
+            ? string.Join(", ", controlVersions.Distinct())
+            : $"none (Scarlet Control NCAs: {controlNcas})";
+        return Fail("Pokémon Scarlet update 4.0.0 not confirmed by control.nacp; " +
+                    $"detected versions: {discovered}. Check update package selection.");
+    }
     Nca? base_ = null, upd = null;
     var dlcs = new List<Nca>();
     foreach (var (nca, name) in ncas)
