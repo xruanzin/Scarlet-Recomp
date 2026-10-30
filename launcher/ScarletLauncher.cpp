@@ -21,6 +21,8 @@
 #include <fstream>
 #include <shlobj.h>
 #include <chrono>
+#include <set>
+#include <iterator>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -36,7 +38,7 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr wchar_t kWindowClass[] = L"ScarletPCLauncherWindow";
-constexpr wchar_t kTitle[] = L"Scarlet PC";
+constexpr wchar_t kTitle[] = L"Scarlet";
 constexpr int kWindowWidth = 1280;
 constexpr int kWindowHeight = 760;
 constexpr UINT kGameExitedMessage = WM_APP + 1;
@@ -154,7 +156,12 @@ HWND g_auto_controller{};
 HWND g_language{};
 HWND g_close_on_launch{};
 
+// Additional user-picked NSP/XCI and folders: no slot or count limit.
 std::vector<std::wstring> g_dlcs;
+std::vector<std::wstring> g_extra_folders;
+struct PackageItem { std::wstring label; int kind; size_t index; };
+std::vector<PackageItem> g_visible_packages;
+std::wstring g_status_text;
 std::atomic<bool> g_importing{false};
 std::wstring g_import_error;
 fs::path g_exe_dir;
@@ -290,20 +297,48 @@ static std::string Utf8(const std::wstring& s) {
                         result.data(), n, nullptr, nullptr);
     return result;
 }
-static std::vector<fs::path> PackageFiles(const fs::path& dir) {
-    std::vector<fs::path> packages;
+static bool IsPackage(const fs::path& p) {
+    std::wstring ext=p.extension().wstring();
+    std::transform(ext.begin(),ext.end(),ext.begin(),::towlower);
+    return ext == L".nsp" || ext == L".xci";
+}
+static std::wstring Fold(const fs::path& path) {
     std::error_code ec;
-    if (!fs::is_directory(dir, ec)) return packages;
-    // No arbitrary DLC count: any amount of NSP/XCI in the selected folder.
-    for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
+    fs::path p = fs::absolute(path,ec);
+    if (ec) p=path;
+    auto value=p.lexically_normal().wstring();
+    std::transform(value.begin(),value.end(),value.begin(),::towlower);
+    return value;
+}
+static void ScanFolder(const fs::path& dir,
+                       std::vector<fs::path>& all,
+                       std::set<std::wstring>& visited) {
+    std::error_code ec;
+    if (!fs::is_directory(dir,ec)) return;
+    for (fs::recursive_directory_iterator it(dir,
+              fs::directory_options::skip_permission_denied,ec), end;
          it != end && !ec; it.increment(ec)) {
-        if (!it->is_regular_file(ec)) { ec.clear(); continue; }
-        std::wstring ext = it->path().extension().wstring();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-        if (ext == L".nsp" || ext == L".xci") packages.push_back(it->path());
+        if (it->is_regular_file(ec) && IsPackage(it->path())) {
+            const auto key=Fold(it->path());
+            if (visited.insert(key).second) all.push_back(it->path());
+        }
+        if (ec) ec.clear();
     }
-    std::sort(packages.begin(), packages.end());
-    return packages;
+}
+static std::vector<fs::path> PackageFiles(const fs::path& dir) {
+    std::vector<fs::path> all;
+    std::set<std::wstring> visited;
+    ScanFolder(dir,all,visited);
+    for (const auto& p:g_extra_folders) ScanFolder(p,all,visited);
+    for (const auto& p:g_dlcs) {
+        std::error_code ec;
+        if (fs::is_regular_file(p,ec) && IsPackage(p) &&
+            visited.insert(Fold(p)).second) all.emplace_back(p);
+    }
+    std::sort(all.begin(),all.end(),[](const fs::path& a,const fs::path& b){
+        return Fold(a)<Fold(b);
+    });
+    return all;
 }
 static fs::path FindKeys(const fs::path& dir, const wchar_t *name) {
     for (const auto& base : {dir, dir / L"keys", g_exe_dir / L"keys",
@@ -421,21 +456,41 @@ HWND MakeCheckbox(Page page, int id, int x, int y, int w, int h,
 }
 
 void RefreshDlcList() {
-    SendMessageW(g_dlc_list, LB_RESETCONTENT, 0, 0);
-    for (const auto& dlc : g_dlcs) {
-        SendMessageW(g_dlc_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(dlc.c_str()));
+    if (!g_dlc_list) return;
+    SendMessageW(g_dlc_list,WM_SETREDRAW,FALSE,0);
+    SendMessageW(g_dlc_list,LB_RESETCONTENT,0,0);
+    g_visible_packages.clear();
+    const auto found=PackageFiles(GetText(g_game_edit));
+    for (const auto& p: found) {
+        auto item=L"  "+p.filename().wstring();
+        LRESULT i=SendMessageW(g_dlc_list,LB_ADDSTRING,0,(LPARAM)item.c_str());
+        if (i>=0) g_visible_packages.push_back({item,0,0});
     }
+    for (size_t i=0;i<g_dlcs.size();++i) {
+        auto label=L"  + NSP: "+fs::path(g_dlcs[i]).filename().wstring();
+        LRESULT pos=SendMessageW(g_dlc_list,LB_ADDSTRING,0,(LPARAM)label.c_str());
+        if (pos>=0) g_visible_packages.push_back({label,1,i});
+    }
+    for (size_t i=0;i<g_extra_folders.size();++i) {
+        auto label=L"  + Pasta: "+fs::path(g_extra_folders[i]).filename().wstring();
+        LRESULT pos=SendMessageW(g_dlc_list,LB_ADDSTRING,0,(LPARAM)label.c_str());
+        if (pos>=0) g_visible_packages.push_back({label,2,i});
+    }
+    SendMessageW(g_dlc_list,WM_SETREDRAW,TRUE,0);
+    InvalidateRect(g_dlc_list,nullptr,TRUE);
 }
 
 void RefreshStatus() {
-    const auto directory = GetText(g_game_edit);
-    auto packages = PackageFiles(directory);
-    std::wstring status = packages.empty()
-        ? L"● Selecione a pasta do jogo (.NSP / .XCI)"
-        : L"✓ " + std::to_wstring(packages.size()) + L" pacote(s) encontrado(s)";
-    if (!packages.empty() && InstallMatches(packages)) status += L"    ✓ Tudo pronto";
-    if (g_importing.load()) status = L"Preparando para jogar...";
-    SetText(g_status, status);
+    const auto packages=PackageFiles(GetText(g_game_edit));
+    if (g_importing.load()) g_status_text=L"Preparando arquivos...";
+    else if (packages.empty()) g_status_text=L"Nenhum NSP/XCI selecionado";
+    else {
+        g_status_text=std::to_wstring(packages.size())+L" pacote(s) selecionado(s)";
+        if (InstallMatches(packages)) g_status_text+=L"     Pronto";
+    }
+    RefreshDlcList();
+    RECT r{290,516,1140,610};
+    InvalidateRect(g_main,&r,FALSE);
 }
 
 void ShowPage(Page page) {
@@ -464,17 +519,37 @@ bool Checked(HWND checkbox) {
 
 void SaveSettings() {
     std::error_code ec;
-    fs::create_directories(g_ini_path.parent_path(), ec);
-    IniWrite(L"Game", L"directory", GetText(g_game_edit));
+    fs::create_directories(g_ini_path.parent_path(),ec);
+    IniWrite(L"Game",L"directory",GetText(g_game_edit));
+    std::ofstream f(g_ini_path.parent_path()/L"scarlet_extra_packages.txt",
+                    std::ios::binary|std::ios::trunc);
+    for (const auto& p:g_dlcs) f << "F" << Utf8(p) << "\n";
+    for (const auto& p:g_extra_folders) f << "D" << Utf8(p) << "\n";
+}
+static std::wstring Utf8ToWide(const std::string& s) {
+    int n=MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),nullptr,0);
+    if (n<=0) return {};
+    std::wstring out((size_t)n,L'\0');
+    MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),out.data(),n);
+    return out;
 }
 
 void LoadSettings() {
-    auto folder = IniRead(L"Game", L"directory");
+    auto folder=IniRead(L"Game",L"directory");
     if (folder.empty()) {
-        auto oldGame = IniRead(L"Game", L"game");
-        if (FileExists(oldGame)) folder = fs::path(oldGame).parent_path().wstring();
+        auto oldGame=IniRead(L"Game",L"game");
+        if (FileExists(oldGame)) folder=fs::path(oldGame).parent_path().wstring();
     }
-    SetText(g_game_edit, folder);
+    g_dlcs.clear();
+    g_extra_folders.clear();
+    std::ifstream f(g_ini_path.parent_path()/L"scarlet_extra_packages.txt",std::ios::binary);
+    std::string item;
+    while (std::getline(f,item)) {
+        if (item.size()<2) continue;
+        if (item[0]=='F') g_dlcs.push_back(Utf8ToWide(item.substr(1)));
+        if (item[0]=='D') g_extra_folders.push_back(Utf8ToWide(item.substr(1)));
+    }
+    SetText(g_game_edit,folder);
     RefreshStatus();
 }
 
