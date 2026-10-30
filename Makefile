@@ -294,6 +294,18 @@ $(B)/rt/platform/windows_rc.o: runtime/platform/windows.rc docs/icon/icon.ico ru
 	@mkdir -p $(dir $@)
 	$(WINDRES) $(SCARLET_ICON_DEFS) -I docs/icon -I runtime/platform -O coff $< -o $@
 
+# Build the original Scarlet PC Win32/GDI+ launcher alongside the native
+# Scarlet runtime. Reuses the exact Scarlet ICO resource and original palette.
+ifeq ($(SCARLET_AOT),1)
+ifeq ($(PLATFORM),windows)
+$(B)/ScarletLauncher.exe: launcher/ScarletLauncher.cpp $(B)/rt/platform/windows_rc.o
+	@mkdir -p $(dir $@)
+	$(CXX) -O2 -std=c++17 -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
+		-municode -mwindows $< $(B)/rt/platform/windows_rc.o -o $@ \
+		-lgdiplus -ldwmapi -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi -luxtheme -lole32 -lgdi32
+endif
+endif
+
 VERSION  := $(shell sed -n 's/^\#define LARECOMP_VERSION "\(.*\)"/\1/p' runtime/ui/launcher.mm)
 
 # macOS: build/LAS Recomp.app, runs on macOS $(APP_MIN)+: the game rebuilt for that in build/mac15 against build/deps
