@@ -83,7 +83,7 @@ $assets = Join-Path $bin 'assets'
 $background = Join-Path $assets 'scarlet_launcher_background.jpg'
 if (!(Test-Path -LiteralPath $background)) {
     New-Item -ItemType Directory -Path $assets -Force | Out-Null
-    $oldBgUrl = 'https://raw.githubusercontent.com/xruanzin/scarlet_pc/perf/zen2-aot-production/launcher/assets/scarlet_launcher_background.jpg'
+    $oldBgUrl = 'https://raw.githubusercontent.com/xruanzin/scarlet_pc/7cf8e933931b8666f819a8a85d5ea9360c35cf37/launcher/assets/scarlet_launcher_background.jpg'
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $oldBgUrl -OutFile $background -ErrorAction Stop
         Write-Host 'Fundo original do Scarlet PC copiado.'
