@@ -2143,6 +2143,29 @@ static bool translate_program_now(Prog *p) {
         p->fi = p->code[1] ? maxwell_translate((const uint8_t *)(uintptr_t)p->code[1], p->cmax[1], STAGE_FRAGMENT, &p->fkey)
                            : maxwell_empty_fragment();
     }
+    // Provenance from the F9 captures (two scene frames). Dump only these original
+    // game-derived fragment shaders; never commit the generated GLSL or assembly.
+    // They live under the isolated LARECOMP_DATA_ROOT selected by graphics_verify.ps1.
+    if (ENV("SCARLET_DUMP_FOCUS_SHADERS") && p->code[1] && p->fi && p->fi->msl) {
+        uint64_t hash = hmix(1469598103934665603ull,
+                             (const void *)(uintptr_t)(p->code[1] + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull || hash == 0x9543b220d1d35f7bull ||
+            hash == 0x2076c99beec00951ull) {
+            mkdir("build", 0755);
+            mkdir("build/scarlet-focus", 0755);
+            char path[128];
+            snprintf(path, sizeof path, "build/scarlet-focus/fs_%016llx_%u.frag",
+                     (unsigned long long)hash, (unsigned)p->fkey.scarlet_hair_mode);
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                fputs(p->fi->msl, f);
+                fclose(f);
+                LOG("[scarlet-focus] fs %016llx -> %s\n", (unsigned long long)hash, path);
+            } else {
+                LOG("[scarlet-focus] cannot write %s\n", path);
+            }
+        }
+    }
     if (ENV("LARECOMP_DUMP_GLSL")) {  // (debug) build/glsl/<code address>.{vert,frag}[.asm]: source and disassembly
         mkdir("build/glsl", 0755);
         for (int sg = 0; sg < 2; sg++) {
@@ -6616,6 +6639,30 @@ static void draw_(CmdRec *r, bool indexed) {
     for (int i = 0; i < st.rt.ncolor; i++) if (st.rt.color[i]) fkey.rt_kind[i] = (uint8_t)rt_kind(st.rt.color[i]->format);
     vkey.stencil_slots = stencil_slots(0, &vkey.sint_slots);
     fkey.stencil_slots = stencil_slots(1, &fkey.sint_slots);
+    // Completely opt-in experiment. Fingerprint only the known deferred-lighting
+    // program from the captures, never all hair/scene materials or any other FS.
+    // Mirror into vkey because the renderer's fast program/pipeline caches key
+    // the full vkey and selected fkey fields, not the whole fkey struct.
+    static int hair_mode = -1;
+    if (hair_mode < 0) {
+        const char *e = ENV("SCARLET_HAIR_MODE");
+        hair_mode = e && strcmp(e, "mask") == 0 ? 1 :
+                    e && strcmp(e, "isotropic") == 0 ? 2 : 0;
+    }
+    if (hair_mode && st.program->stages[1].code_addr) {
+        uint64_t fs = st.program->stages[1].code_addr;
+        uint64_t hash = hmix(1469598103934665603ull,
+                              (const void *)(uintptr_t)(fs + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull) {
+            vkey.scarlet_hair_mode = fkey.scarlet_hair_mode = (uint8_t)hair_mode;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-hair] exact FS %016llx mode %s (experimental, not a proven fix)\n",
+                    (unsigned long long)hash, hair_mode == 1 ? "mask" : "isotropic");
+            }
+        }
+    }
     if (xfb_on && st.program->stages[0].control) {  // the program's transform feedback layout (its control section)
         const uint8_t *ctl = st.program->stages[0].control;
         for (int b = 0; b < 4; b++) {
