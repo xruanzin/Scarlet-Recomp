@@ -1,6 +1,12 @@
+#ifndef UNICODE
 #define UNICODE
+#endif
+#ifndef _UNICODE
 #define _UNICODE
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
@@ -834,7 +840,7 @@ void CreateGamePage() {
     g_title_keys_edit=MakeEdit(Game,ID_GAME_STATUS,300,537,640,32);
     MakeButton(Game,ID_TITLE_KEYS_BROWSE,955,537,168,32,L"PROCURAR");
 
-    g_fps=MakeCombo(Game,ID_FPS,300,608,268,190,kScarletNativeFps,0);
+    g_fps=MakeCombo(Game,ID_FPS,300,608,268,132,kScarletNativeFps,0);
 }
 
 void CreateGraphicsPage() {
