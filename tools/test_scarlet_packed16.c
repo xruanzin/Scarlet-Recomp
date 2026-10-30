@@ -13,7 +13,7 @@ static void test_rgba4(void) {
 static void test_rgb5a1(void) {
     const uint8_t in[] = {0x1f, 0x80, 0xe0, 0x83, 0x00, 0xfc, 0xff, 0xff};
     uint8_t out[16] = {0};
-    const uint8_t expected[] = {255, 0, 0, 0, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    const uint8_t expected[] = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
     nvn_unpack_rgb5a1(out, in, 4);
     for (unsigned i = 0; i < sizeof out; i++) assert(out[i] == expected[i]);
 }
