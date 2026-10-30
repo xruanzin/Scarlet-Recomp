@@ -4,6 +4,9 @@ param(
     [switch]$NoWait,
     [switch]$SkyAudit,
     [switch]$GraphicsAudit,
+    [switch]$DumpFocusShaders,
+    [ValidateSet('baseline','mask','isotropic')]
+    [string]$HairMode = 'baseline',
     [ValidateRange(0,1000000)]
     [int]$GraphicsFromFrame = 600,
     [string]$GraphicsShaderHash = '',
@@ -44,6 +47,8 @@ $env:LARECOMP_NO_LAUNCHER = '1'
 $env:LARECOMP_DATA_ROOT = $data
 $env:SCARLET_EARLY_TLS_PROBE = '1'
 $env:SCARLET_BOOTSTRAP_ALLOCATOR = '1'
+if ($DumpFocusShaders) { $env:SCARLET_DUMP_FOCUS_SHADERS = '1' }
+if ($HairMode -ne 'baseline') { $env:SCARLET_HAIR_MODE = $HairMode }
 # Opt-in sky A/B. Variables are scoped to this child PowerShell process and its isolated data.
 if ($SkyAudit) {
     $env:SCARLET_SKY_AUDIT = '1'
@@ -61,8 +66,8 @@ switch ($SkyMode) {
     'fresh-feedback' { $env:LARECOMP_NO_SNAPSHOT_REUSE = '1' }
     'lod1'          { $env:LARECOMP_LOD_MIN = '1' }
 }
-if ($SkyAudit -or $SkyMode -ne 'baseline' -or $GraphicsAudit) {
-    Write-Host "Graphics investigation: mode=$SkyMode; sky trace=$SkyAudit; draw trace=$GraphicsAudit; sky frame=$SkyFromFrame; draw frame=$GraphicsFromFrame; shader=$GraphicsShaderHash"
+if ($SkyAudit -or $SkyMode -ne 'baseline' -or $GraphicsAudit -or $DumpFocusShaders -or $HairMode -ne 'baseline') {
+    Write-Host "Graphics investigation: mode=$SkyMode; sky trace=$SkyAudit; draw trace=$GraphicsAudit; sky frame=$SkyFromFrame; draw frame=$GraphicsFromFrame; shader=$GraphicsShaderHash; hair=$HairMode; focus GLSL=$DumpFocusShaders"
 }
 $log = Join-Path $run 'stderr.log'
 Write-Host "Isolated test: $run"
