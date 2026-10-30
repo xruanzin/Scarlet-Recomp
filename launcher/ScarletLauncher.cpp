@@ -607,8 +607,13 @@ static bool ImportPackages(const fs::path& folder, std::wstring* error) {
     std::error_code ec;
     fs::create_directories(games,ec);
     if (fs::exists(stage,ec)) {
-        *error=L"Importação anterior em .installing. Renomeie a pasta antes de tentar novamente.";
-        return false;
+        // Keep all interrupted imports; do not overwrite or delete user data.
+        fs::path failed=games / (L"failed-" + std::to_wstring(GetTickCount64()));
+        fs::rename(stage,failed,ec);
+        if (ec) {
+            *error=L"Não foi possível preservar a importação anterior.";
+            return false;
+        }
     }
     fs::create_directories(stage,ec);
     if (ec) { *error=L"Falha ao criar pasta de importação."; return false; }
