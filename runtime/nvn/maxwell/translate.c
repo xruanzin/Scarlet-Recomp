@@ -1662,8 +1662,12 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             !sgn && d == 62 && a == 47 && strcmp(bv, "0x00000303u") == 0) {
             c->scarlet_hair_bfe_found = true;
             sp(&c->body, "    if (r62 == 3u) { scarlet_hair = true;\n");
-            if (c->key->scarlet_hair_mode == 2)
+            if (c->key->scarlet_hair_mode == 2) {
+                // The optional guest-register experiment writes these registers
+                // even if the source shader did not read them elsewhere.
+                c->reg_used[6] = c->reg_used[7] = c->reg_used[32] = 1;
                 sp(&c->body, "      r62 = 0u; r6 = 0u; r7 = 0u; r32 = 0u;\n");
+            }
             sp(&c->body, "    }\n");
         }
     } else if (OPM(0x5bf0000000000000ull, 0xfff8000000000000ull) || OPM(0x4bf0000000000000ull, 0xfff8000000000000ull) ||
