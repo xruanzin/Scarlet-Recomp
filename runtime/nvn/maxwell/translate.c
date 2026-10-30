@@ -2819,6 +2819,25 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
         // desired RGB hair colour. Never modify any material in baseline.
         if (key && key->scarlet_hair_mode == 1 && (c->omap_target & 0xF) && key->rt_kind[0] == 0)
             sp(&s, "  if (scarlet_hair) c0.rgb = vec3(1.0, 0.0, 1.0);\n");
+        // Experimental chroma restoration from scarlet_pc: for the confirmed
+        // material-3 branch, use the albedo in deferred G-buffer t4 to restore
+        // the original hue, retaining luminance from the game's lighting.
+        // This is deliberately NOT the earlier isotropic-register workaround,
+        // and does not touch other materials, shaders, sky or assets.
+        if (key && key->scarlet_hair_mode == 3 && c->scarlet_hair_bfe_found &&
+            (c->omap_target & 0x7u) == 0x7u && key->rt_kind[0] == 0 &&
+            info->ntex > 4 && info->tex[4].type == TEXTYPE_2D &&
+            !info->tex[4].shadow && !info->tex[4].stencil && c->uses_rscale) {
+            sp(&s, "  if (scarlet_hair) {\n"
+                   "    ivec2 hp = ivec2((gl_FragCoord.xy - rscale[0].zw) / rscale[0].xy);\n"
+                   "    hp = max(hp, ivec2(0));\n"
+                   "    vec3 hb = max(texelFetch(t4, ivec2(rsc(uvec2(hp), rscale[5])), 0).rgb, vec3(0.0));\n"
+                   "    vec3 hl = max(c0.rgb, vec3(0.0));\n"
+                   "    float ll = dot(hl, vec3(0.2126, 0.7152, 0.0722));\n"
+                   "    float lb = max(dot(hb, vec3(0.2126, 0.7152, 0.0722)), 0.02);\n"
+                   "    c0.rgb = hb * clamp(ll / lb, 0.25, 2.0);\n"
+                   "  }\n");
+        }
         if (c->omap_depth) {
             if (c->reg_used[r + 1]) sp(&s, "  gl_FragDepth = as_f(r%d);\n", r + 1);
             else sp(&s, "  gl_FragDepth = gl_FragCoord.z;\n");
