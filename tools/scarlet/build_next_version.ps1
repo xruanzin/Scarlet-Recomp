@@ -25,25 +25,60 @@ $env:TMP = Join-Path $cache 'tmp'
 $env:TEMP = $env:TMP
 New-Item -ItemType Directory -Force $env:TMP | Out-Null
 
-# Optional user-supplied icon, shared by native Scarlet game + launcher.
-# Users can save the exact icon from their ChatGPT upload as D:\Scarlet-Recomp\icon.ico,
-# or pass -IconPath <their ico>. Never modify upstream docs/icon/icon.ico.
+# Use the owner's icon.zip or icon.ico for BOTH Scarlet executables.
+# ZIPs must contain a real .ico file (validated before writing any output).
 if (!$IconPath) {
-    $candidate = Join-Path $repo 'icon.ico'
-    if (Test-Path -LiteralPath $candidate) { $IconPath = $candidate }
+    $possible = @(
+        (Join-Path $repo 'icon.ico'),
+        (Join-Path $repo 'icon(2).zip'),
+        (Join-Path $repo 'icon.zip'),
+        (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\icon(2).zip'),
+        (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\icon.zip')
+    )
+    foreach ($candidate in $possible) {
+        if (Test-Path -LiteralPath $candidate) { $IconPath = $candidate; break }
+    }
 }
 if ($IconPath) {
     $source = (Resolve-Path -LiteralPath $IconPath -ErrorAction Stop).Path
-    $bytes = [System.IO.File]::ReadAllBytes($source)
-    if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or
+    $bytes = $null
+    if ([System.IO.Path]::GetExtension($source).Equals('.zip', [StringComparison]::OrdinalIgnoreCase)) {
+        Add-Type -AssemblyName System.IO.Compression -ErrorAction Stop
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($source)
+        try {
+            $ico = $zip.Entries |
+                Where-Object { [System.IO.Path]::GetFileName($_.FullName).Equals('icon.ico', [StringComparison]::OrdinalIgnoreCase) } |
+                Select-Object -First 1
+            if (!$ico) {
+                $ico = $zip.Entries | Where-Object { $_.FullName.EndsWith('.ico', [StringComparison]::OrdinalIgnoreCase) } |
+                    Select-Object -First 1
+            }
+            if (!$ico -or $ico.Length -lt 22 -or $ico.Length -gt 16777216) {
+                throw "ZIP sem um icone .ico valido: $source"
+            }
+            $stream = $ico.Open()
+            $buffer = New-Object System.IO.MemoryStream
+            try { $stream.CopyTo($buffer); $bytes = $buffer.ToArray() }
+            finally { $stream.Dispose(); $buffer.Dispose() }
+        } finally { $zip.Dispose() }
+    } else {
+        $bytes = [System.IO.File]::ReadAllBytes($source)
+    }
+    if (!$bytes -or $bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or
         $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
         throw "Arquivo nao e um icone Windows ICO valido: $source"
     }
     $targetIcon = Join-Path $repo 'docs\icon\scarlet.ico'
-    if ($source -ne $targetIcon) { Copy-Item -LiteralPath $source -Destination $targetIcon -Force }
-    Write-Host "Icone Scarlet instalado: $targetIcon"
+    $writeIcon = !(Test-Path -LiteralPath $targetIcon)
+    if (!$writeIcon) {
+        $existing = [System.IO.File]::ReadAllBytes($targetIcon)
+        $writeIcon = !([Convert]::ToBase64String($existing) -ceq [Convert]::ToBase64String($bytes))
+    }
+    if ($writeIcon) { [System.IO.File]::WriteAllBytes($targetIcon, $bytes) }
+    Write-Host "Icone Scarlet: $source -> $targetIcon"
 } elseif (!(Test-Path -LiteralPath (Join-Path $repo 'docs\icon\scarlet.ico'))) {
-    Write-Warning 'Icone nao encontrado. Salve o ICO enviado como D:\Scarlet-Recomp\icon.ico e execute novamente para incluir no scarlet.exe.'
+    Write-Warning 'Icone nao encontrado. Copie icon(2).zip para D:\Scarlet-Recomp\ e execute novamente.'
 }
 
 # Recompile only the *host* objects when moving from the old ZA binary to
