@@ -70,3 +70,36 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_ne
 ```
 
 A verificação final de inicialização é necessária no Windows do usuário.
+
+## Revisão visual e importação sem limite (30/10/2026)
+
+O fundo foi substituído pela arte Scarlet/Violet enviada pelo usuário,
+agora versionada como `launcher/assets/scarlet_launcher_background.jpg`
+em 1280×720. A build copia essa arte sobre o JPG antigo em todas as
+compilações, inclusive com `-SkipRuntime -SkipImporter`.
+Não baixa mais o fundo do projeto anterior.
+
+O texto de status e as legendas foram movidos dos controles Win32 STATIC
+transparentes para o desenho próprio GDI+ do painel, corrigindo a
+sobreposição observada na captura. A janela agora se chama `Scarlet`.
+O fundo ocupa todo o espaço disponível, com painéis escuros e detalhes
+dourados.
+
+Controles novos, sem limite fixo:
+- Pasta principal, incluindo subpastas (NSP/XCI)
+- `+ ADICIONAR NSP` (quantas vezes desejar)
+- `+ ADICIONAR PASTA` (quantas vezes desejar)
+- `REMOVER` (somente itens adicionados manualmente)
+
+Os extras são lembrados em `user/config/scarlet_extra_packages.txt`.
+Todos os pacotes são deduplicados por caminho antes de criar o manifest
+para o importador. Nenhuma modificação em keys, AOT, céu ou cabelo.
+
+Para compilar e abrir a interface:
+```powershell
+cd D:\Scarlet-Recomp
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipImporter
+& '.\build\scarlet\eb6deb908752b9c6\scarlet.exe'
+```
+
+Compilação e teste visual no Windows do usuário ainda pendentes.
