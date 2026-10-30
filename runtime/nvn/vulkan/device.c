@@ -2002,6 +2002,13 @@ int ui_run(void) {
             }
             extern bool input_user_blocked(const SDL_Event *e);
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing (as metal.m)
+            // Capture F9 before the menu can consume keyboard events (e.g. an overlay is open).
+            // It is a host-only diagnostic: do not forward/alter any game controls here.
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9 && !e.key.repeat) {
+                extern volatile int g_debug_frame_request;
+                g_debug_frame_request = 1;
+                LOG("[debug] F9 pressed: capture next presented frame's render passes\n");
+            }
             input_cursor_event(&e);
             atomic_store(&ui_stage, "menu_handle_event");
             if (menu_handle_event(&e)) continue;
