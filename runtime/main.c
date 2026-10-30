@@ -290,6 +290,35 @@ static void teardown(void) {
     LOG("[reboot] game torn down in %llums (%d reset hooks)\n", (unsigned long long)((plat_now_ns() - t0) / 1000000), n);
 }
 
+// Scarlet 4.0.0: adapted from the v4.0.0 60FPS community frame-duration
+// constant (MAIN+0x03c2fbb0: 33333334ns -> 16666667ns). The other community
+// write targets an uncommitted guest region in this AOT runtime, so we DO NOT
+// blindly write there; NVN interval is changed through our host window hook.
+// Guard by actual module memory size and the original 30Hz value.
+bool g_scarlet_native_fps60;
+static void scarlet_fps60_setup(void) {
+    g_scarlet_native_fps60 = false;
+#ifdef SCARLET_AOT
+    const char *e = getenv("SCARLET_FPS60");
+    if (!e || strcmp(e, "1") != 0) return;
+    if (g_program_id != 0x0100a3d008c5c000ull || !g_nmodules ||
+        g_modules[0].base != MAIN_BASE ||
+        g_modules[0].size < 0x03c2fbb0ull + sizeof(uint32_t)) {
+        LOG("[scarlet-fps60] unsafe module/program for 60Hz patch; left at 30\n");
+        return;
+    }
+    uint32_t *ns = (uint32_t *)(uintptr_t)(MAIN_BASE + 0x03c2fbb0ull);
+    const uint32_t before = *ns;
+    if (before != 0x01fca056u && before != 0x00fe502bu) {
+        LOG("[scarlet-fps60] frame duration unexpected: 0x%08x (expected 0x01fca056); 60Hz disabled\n", before);
+        return;
+    }
+    *ns = 0x00fe502bu;
+    g_scarlet_native_fps60 = true;
+    LOG("[scarlet-fps60] 4.0.0 native experimental: 33333334 -> 16666667 ns; Vulkan interval 1. Validate world/animations/battle speed.\n");
+#endif
+}
+
 static void boot(const char *root) {
     scarlet_main_init_early = false;  // also reset on in-place reboots
     char exefs[1024], romfs[1024], npdm_path[1024];
@@ -335,6 +364,7 @@ static void boot(const char *root) {
     g_game_is_la = g_program_id == 0x01006BB00C6F0000ull;
     if (!g_game_is_la) LOG("not Link's Awakening: its game hooks are off\n");
     LOG("main thread: prio %d, stack 0x%x, program 0x%016llx\n", prio, stack_size, (unsigned long long)g_program_id);
+    scarlet_fps60_setup();
 
     // nn::init::Start(thread_handle, args_region, init_sdk, init_main); newer SDKs (19: Pokémon Legends Z-A) add a
     // third callback, run after nnMain returns (the modules' finalizers: nothing to do here)
