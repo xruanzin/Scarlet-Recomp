@@ -27,7 +27,10 @@ New-Item -ItemType Directory -Force $env:TMP | Out-Null
 
 # Use the owner's icon.zip or icon.ico for BOTH Scarlet executables.
 # ZIPs must contain a real .ico file (validated before writing any output).
-if (!$IconPath) {
+# Prefer the versioned icon from GitHub, requiring no local ZIP or copying.
+# -IconPath remains an explicit override when replacing the art deliberately.
+$trackedIcon = Join-Path $repo 'docs\icon\scarlet.ico'
+if (!$IconPath -and !(Test-Path -LiteralPath $trackedIcon)) {
     $possible = @(
         (Join-Path $repo 'icon.ico'),
         (Join-Path $repo 'icon(2).zip'),
@@ -77,6 +80,8 @@ if ($IconPath) {
     }
     if ($writeIcon) { [System.IO.File]::WriteAllBytes($targetIcon, $bytes) }
     Write-Host "Icone Scarlet: $source -> $targetIcon"
+} elseif (Test-Path -LiteralPath $trackedIcon) {
+    Write-Host 'Icone Scarlet incorporado no GitHub; sera incluido nos executaveis.'
 } elseif (!(Test-Path -LiteralPath (Join-Path $repo 'docs\icon\scarlet.ico'))) {
     Write-Warning 'Icone nao encontrado. Copie icon(2).zip para D:\Scarlet-Recomp\ e execute novamente.'
 }
