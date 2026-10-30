@@ -142,6 +142,8 @@ RT_OBJ   := $(patsubst runtime/%.cpp,$(B)/rt/%.o,$(patsubst runtime/%.c,$(B)/rt/
 ifneq ($(SCARLET_AOT),)
 ifeq ($(SCARLET_AOT),1)
 OSFLAGS += -DSCARLET_AOT=1
+# UIFLAGS was :=-expanded earlier in the Windows platform branch.
+UIFLAGS += -DSCARLET_AOT=1
 endif
 endif
 RTFLAGS  := -O2 -g -fno-strict-aliasing -Wall -Wno-unused-function -Iruntime -Iruntime/nvn $(DEPINC) $(OSFLAGS)
