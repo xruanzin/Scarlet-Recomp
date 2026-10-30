@@ -5533,23 +5533,25 @@ static void scarlet_graphics_audit_draw(const Prog *p) {
     const NvnTexture *rt = st.rt.ncolor ? st.rt.color[0] : NULL;
     for (unsigned i = 0; i < nseen; i++)
         if (seen[i].fs == g_cur_fs_hash && seen[i].vs == vs && seen[i].rt == rt) return;
-    seen[nseen++] = (typeof(seen[0])){g_cur_fs_hash, vs, rt};
+    seen[nseen].fs = g_cur_fs_hash;
+    seen[nseen].vs = vs;
+    seen[nseen++].rt = rt;
     LOG("[gfxaudit] frame %llu fs %016llx vs_code %#llx fs_code %#llx ntex %d fcb_mask %#x "
-        "rt_count %d rt0 %p depth %p viewport %.0f,%.0f,%.0f,%.0f\\n",
+        "rt_count %d rt0 %p depth %p viewport %.0f,%.0f,%.0f,%.0f\n",
         (unsigned long long)frame, (unsigned long long)g_cur_fs_hash, (unsigned long long)vs,
         (unsigned long long)st.program->stages[1].code_addr, p->fi->ntex, p->fi->cbuf_mask,
         st.rt.ncolor, (const void *)rt, (void *)st.rt.depth,
         st.viewport[0][0], st.viewport[0][1], st.viewport[0][2], st.viewport[0][3]);
     for (int i = 0; i < st.rt.ncolor && i < 8; i++) {
         const NvnTexture *t = st.rt.color[i];
-        if (t) LOG("[gfxaudit] fs %016llx rt%d %p %ux%u fmt %#x\\n",
+        if (t) LOG("[gfxaudit] fs %016llx rt%d %p %ux%u fmt %#x\n",
                    (unsigned long long)g_cur_fs_hash, i, (const void *)t,
                    t->width, t->height, t->format);
     }
     for (int i = 0; i < 18; i++) {
         if (!((p->fi->cbuf_mask >> i) & 1u)) continue;
         const Range *b = &st.ubuf[1][i];
-        LOG("[gfxaudit] fs %016llx fcb%d addr %#llx bytes %llu\\n",
+        LOG("[gfxaudit] fs %016llx fcb%d addr %#llx bytes %llu\n",
             (unsigned long long)g_cur_fs_hash, i, (unsigned long long)b->addr,
             (unsigned long long)b->size);
     }
