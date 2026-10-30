@@ -976,7 +976,7 @@ void DrawBackground(HWND hwnd, HDC hdc) {
     Gdiplus::Font title_font(&family, 28.0f, FontStyleBold, UnitPixel);
     Gdiplus::Font heading(&family, 21.0f, FontStyleBold, UnitPixel);
     Gdiplus::Font label(&family, 16.0f, FontStyleRegular, UnitPixel);
-    Gdiplus::Font status_font(&family, 16.0f, FontStyleSemibold, UnitPixel);
+    Gdiplus::Font status_font(&family, 16.0f, FontStyleBold, UnitPixel);
     SolidBrush title_brush(Color(255, 245, 213, 77));
     SolidBrush text_brush(Color(255, 244, 238, 226));
     SolidBrush muted(Color(255, 185, 177, 179));
