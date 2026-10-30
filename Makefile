@@ -228,6 +228,9 @@ $(GAMELIB): $(GEN_OBJ) | $(EXE)
 	mv -f $@.tmp $@
 	echo $(GAMELIB_FULL_ID) > $@.id
 
+ifeq ($(SCARLET_AOT),1)
+$(B)/rt/ui/launcher.o: runtime/ui/scarlet_launcher.inc
+endif
 $(B)/rt/ui/%.o: runtime/ui/%.mm $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(UIFLAGS) -c $< -o $@
