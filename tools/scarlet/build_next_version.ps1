@@ -67,10 +67,29 @@ if (!$SkipRuntime) {
     $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
     $env:MSYSTEM = 'UCRT64'
     $build = "build/scarlet/$BuildId"
-    & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe"
-    if ($LASTEXITCODE -ne 0) { throw 'Falha na compilacao incremental do Scarlet runtime' }
-    Set-Content -LiteralPath $flavour -Value 'SCARLET_AOT=1; launcher=fixed; icon=Scarlet' -Encoding ASCII
-    Write-Host 'Runtime atualizado com o novo launcher. Abra scarlet.exe SEM --play.'
+    & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe" "$build/ScarletLauncher.exe"
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar Scarlet runtime/launcher Win32' }
+    if (!(Test-Path -LiteralPath (Join-Path $bin 'ScarletLauncher.exe'))) {
+        throw 'ScarletLauncher.exe nao foi gerado'
+    }
+    Set-Content -LiteralPath $flavour -Value 'SCARLET_AOT=1; launcher=ScarletPC-Win32-GDI; icon=Scarlet' -Encoding ASCII
+    Write-Host 'Scarlet Win32 e runtime compilados. Abra scarlet.exe sem --play.'
+}
+
+# Copy the original background image from the owner's Scarlet PC launcher.
+# It is downloaded directly from the specified GitHub branch, without changing
+# the source repository. A missing network connection only affects the backdrop.
+$assets = Join-Path $bin 'assets'
+$background = Join-Path $assets 'scarlet_launcher_background.jpg'
+if (!(Test-Path -LiteralPath $background)) {
+    New-Item -ItemType Directory -Path $assets -Force | Out-Null
+    $oldBgUrl = 'https://raw.githubusercontent.com/xruanzin/scarlet_pc/perf/zen2-aot-production/launcher/assets/scarlet_launcher_background.jpg'
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $oldBgUrl -OutFile $background -ErrorAction Stop
+        Write-Host 'Fundo original do Scarlet PC copiado.'
+    } catch {
+        Write-Warning 'Nao foi possivel copiar o fundo original; a interface usa a cor base.'
+    }
 }
 
 # A runtime-only 'dotnet.exe' exists on many Windows PCs, but it cannot run
