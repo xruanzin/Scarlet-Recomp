@@ -112,12 +112,17 @@ static void scarlet_import_worker(ScarletPick p) {
     std::string in_build = std::string("build/scarletimport/")+exe;
     if (!rt_resource(in_app.c_str(),in_build.c_str(),tool,sizeof tool)) {
         error="scarletimport.exe ausente. Compile tools/scarletimport com dotnet publish.";
-    } else if (!scarlet_imported() &&
-               is_dir(scarlet_stage)) {
-        error="Importacao anterior incompleta. Verifique scarlet-games/.installing; nao foi apagada.";
     } else {
         SDL_CreateDirectory("scarlet-games");
-        SDL_CreateDirectory(scarlet_stage);
+        // A failed/interrupted first use is never silently reused or deleted.
+        // Move it aside for diagnostics, then start from a fresh staging dir.
+        if (is_dir(scarlet_stage)) {
+            if (is_dir("scarlet-games/failed") ||
+                rename(scarlet_stage, "scarlet-games/failed") != 0)
+                error="A importacao anterior permanece em .installing. Preserve/renomeie .installing e failed antes de tentar novamente.";
+        }
+        if (error.empty()) SDL_CreateDirectory(scarlet_stage);
+        if (error.empty()) {
         std::vector<std::string> argv_store = {tool};
         if (!p.title.empty()) { argv_store.push_back("--title-keys"); argv_store.push_back(p.title); }
         argv_store.push_back(p.prod);
@@ -150,6 +155,7 @@ static void scarlet_import_worker(ScarletPick p) {
                 }
             }
         }
+        } // staged importer
     }
     pthread_mutex_lock(&scarlet_pick_lock);
     scarlet_install_error=error;
