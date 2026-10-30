@@ -140,3 +140,33 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_ne
 Para importar os NSP/XCI, execute build_next_version.ps1 sem
 `-SkipImporter` antes de clicar JOGAR. A versão ainda requer
 compilação/validação no Windows do proprietário.
+
+## Correção da rejeição incorreta do NSP 4.0.0
+
+Log anterior: `error: no update Control NACP with display version 4.0.0`.
+
+A checagem antiga exigia que o `Control NCA` usasse
+`0100A3D008C5C800` (Patch Title ID), porém esse tipo de conteúdo
+pode registrar `0100A3D008C5C000` (Application Title ID).
+O importador agora examina os dois IDs do Scarlet e lê o campo
+`DisplayVersion` de `control.nacp` no offset `0x3060`.
+A validação estrita `4.0.0` e a verificação do Build ID do NSO
+continuam ativas, sem aceitar versões incorretas.
+
+O novo `import.log` registra:
+`control: <pacote/NCA> title <id> display version '<versão>'`.
+Quando não detectar 4.0.0, a mensagem de erro lista as versões
+encontradas para diferenciar pacote errado de falha de leitura.
+
+Para atualizar só o importador (sem recompilar Scarlet ou AOT):
+
+```powershell
+cd D:\Scarlet-Recomp
+git fetch https://github.com/xruanzin/Scarlet-Recomp.git refs/heads/feature/scarlet-original-launcher-folder-import-20261030
+git merge --ff-only FETCH_HEAD
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipRuntime
+```
+
+Em seguida execute `ScarletLauncher.exe` e clique JOGAR.
+A nova execução deve reconhecer o `Control` da atualização
+ou indicar quais versões realmente foram encontradas.
