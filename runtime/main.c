@@ -429,6 +429,15 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // The Scarlet executable is portable: put extracted NSP/XCI images, DLCs,
+    // saves and caches beside scarlet.exe (normally on D:), not on a possibly
+    // full C: / AppData folder. User/test-specified LARECOMP_DATA_ROOT wins.
+    if (!getenv("LARECOMP_DATA_ROOT")) {
+        const char *exe_home = SDL_GetBasePath();
+        if (exe_home && *exe_home) setenv("LARECOMP_DATA_ROOT", exe_home, 0);
+    }
+#endif
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0,
         // b1f12fd919eae86a: 2.0.2): the start screen sets its files up from the player's packages (zaimport). Started
