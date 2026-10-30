@@ -4,7 +4,8 @@
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
     [switch]$SkipImporter,
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [string]$IconPath = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -23,6 +24,54 @@ $env:NUGET_PACKAGES = Join-Path $cache 'nuget-packages'
 $env:TMP = Join-Path $cache 'tmp'
 $env:TEMP = $env:TMP
 New-Item -ItemType Directory -Force $env:TMP | Out-Null
+
+# Optional user-supplied icon, shared by native Scarlet game + launcher.
+# Users can save the exact icon from their ChatGPT upload as D:\Scarlet-Recomp\icon.ico,
+# or pass -IconPath <their ico>. Never modify upstream docs/icon/icon.ico.
+if (!$IconPath) {
+    $candidate = Join-Path $repo 'icon.ico'
+    if (Test-Path -LiteralPath $candidate) { $IconPath = $candidate }
+}
+if ($IconPath) {
+    $source = (Resolve-Path -LiteralPath $IconPath -ErrorAction Stop).Path
+    $bytes = [System.IO.File]::ReadAllBytes($source)
+    if ($bytes.Length -lt 22 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or
+        $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
+        throw "Arquivo nao e um icone Windows ICO valido: $source"
+    }
+    $targetIcon = Join-Path $repo 'docs\icon\scarlet.ico'
+    if ($source -ne $targetIcon) { Copy-Item -LiteralPath $source -Destination $targetIcon -Force }
+    Write-Host "Icone Scarlet instalado: $targetIcon"
+} elseif (!(Test-Path -LiteralPath (Join-Path $repo 'docs\icon\scarlet.ico'))) {
+    Write-Warning 'Icone nao encontrado. Salve o ICO enviado como D:\Scarlet-Recomp\icon.ico e execute novamente para incluir no scarlet.exe.'
+}
+
+# Recompile only the *host* objects when moving from the old ZA binary to
+# Scarlet mode for the first time. Make does not otherwise track CFLAGS
+# changed by SCARLET_AOT; stale objects can silently launch the old game.
+$flavour = Join-Path $bin '.scarlet-native-launcher-mode'
+if (!$SkipRuntime) {
+    if (!(Test-Path -LiteralPath $flavour)) {
+        Write-Host 'Primeira compilacao Scarlet: invalidando somente os objetos do host (AOT preservada).'
+        foreach ($obj in @(
+            'rt/main.o', 'rt/ui/launcher.o', 'rt/nvn/vulkan/device.o',
+            'rt/nvn/vulkan/exec.o', 'rt/nvn/objects.o',
+            'rt/platform/windows_rc.o'
+        )) {
+            $objPath = Join-Path $bin $obj
+            if (Test-Path -LiteralPath $objPath) {
+                Remove-Item -LiteralPath $objPath -Force
+            }
+        }
+    }
+    $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
+    $env:MSYSTEM = 'UCRT64'
+    $build = "build/scarlet/$BuildId"
+    & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe"
+    if ($LASTEXITCODE -ne 0) { throw 'Falha na compilacao incremental do Scarlet runtime' }
+    Set-Content -LiteralPath $flavour -Value 'SCARLET_AOT=1; launcher=fixed; icon=Scarlet' -Encoding ASCII
+    Write-Host 'Runtime atualizado com o novo launcher. Abra scarlet.exe SEM --play.'
+}
 
 # A runtime-only 'dotnet.exe' exists on many Windows PCs, but it cannot run
 # 'dotnet publish'. Check actual SDK installations, not just Get-Command.
@@ -75,12 +124,5 @@ if (!$SkipImporter) {
         throw 'scarletimport.exe nao foi gerado'
     }
     Write-Host "Importer: $(Join-Path $target 'scarletimport.exe')"
-}
-if (!$SkipRuntime) {
-    $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
-    $env:MSYSTEM = 'UCRT64'
-    $build = "build/scarlet/$BuildId"
-    & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe"
-    if ($LASTEXITCODE -ne 0) { throw 'Falha na compilacao incremental do Scarlet runtime' }
 }
 Write-Host "Pronto. Abra: $(Join-Path $bin 'scarlet.exe')"
