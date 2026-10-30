@@ -315,3 +315,62 @@ and creates one contact sheet; smoother scores are **diagnostic clues,
 not proof**, and should never automatically select a production fix.
 If depth 0 corrupts the sky, revert with `-SkyVolumeDepth baseline`;
 the original shader and hair-albedo mode remain unchanged.
+
+## 13. Sky visibly fixed — verified 30/10/2026
+
+User supplied `shot_02572.png`, `stderr(5).log`,
+`sky_volume_linear_rgba16f_32x128x32.bin`,
+`sky_volume_tiled_rgba16f_32x128x32.bin` and
+`sky_volume_layouts.png` after running the 3D volume block-depth
+experiment at **`-SkyVolumeDepth 0`**, with **`-HairMode albedo`**.
+
+**Visible result:** The large horizontal sky bands have disappeared from the
+daytime seaside scene, while clouds remain intact and the previously corrected
+hair still appears with natural color. This is a user-observed correction for
+this captured scene; verify other weather/time-of-day scenes before merging to
+the functional branch.
+
+**Runtime confirmation:**
+
+- `[scarlet-sky] sky volume 32x128x32 fmt 0x29; unpack block height 4 depth 0 (guest assumed depth 5), raw 1048576 bytes`
+- `[scarlet-sky] volume binding: ... gpu_owned 0 uploaded 1 block height 4 block depth 5` confirms the volume was uploaded from CPU game texture memory, and the actual corrected deswizzle ran during upload.
+- `[scarlet-hair] mode 3 material-3 BFE extractor found` confirms hair-mode albedo was active concurrently.
+- The F10 screenshot was saved at game frame 2572.
+
+**Offline check:** Deswizzling the supplied 1 MiB raw tiled texture
+with block depth 0 generates a byte-for-byte match with the uploaded
+1 MiB linear texture. For all six block-depth interpretations using
+RGBA16F, compare mean absolute difference between adjacent **Z layers**
+over RGB values:
+
+| block-depth log2 | adjacent-Z mean absolute difference |
+|---|---:|
+| 0 (corrected) | 0.1120 |
+| 1 | 0.3616 |
+| 2 | 0.5195 |
+| 3 | 0.5309 |
+| 4 | 0.5219 |
+| 5 (legacy assumption) | 0.5192 |
+
+Thus the observed corrected layout is ~78% more spatially continuous across
+Z than legacy block depth 5. Together with the visual F10 screenshot, this
+strongly supports a guest-layout mismatch as the cause of the bands.
+
+**Implementation consolidation:** The exact 3D texture predicate
+`t->target==2 && t->format==0x29 && 32x128x32` now
+defaults to `u.bd=0` in `runtime/nvn/vulkan/textures.c`; this DOES NOT
+alter the generic 3D layout for any other texture. The explicit diagnostic
+override `SCARLET_SKY_VOLUME_DEPTH=5` / `-SkyVolumeDepth 5` restores
+legacy behavior for A/B and rollback without recompilation. Binary dumping
+remains entirely opt-in. Hair remains selectable with
+`-HairMode albedo`; no generic deferred shading paths were changed.
+
+A normal isolated run with the confirmed fixes is now:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo
+~~~
+
+The new default depth-0 code has **not yet been recompiled and rechecked**
+on the user's Windows system since this commit; the visual proof comes from
+the immediately preceding diagnostic build with the explicit depth-0 flag.
