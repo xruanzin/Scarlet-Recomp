@@ -843,16 +843,67 @@ static void StartNativeGame() {
         MessageBoxW(g_main,L"scarlet.exe não encontrado.",kTitle,MB_OK|MB_ICONERROR);
         return;
     }
+    // Catch loader failures before starting the game: those produce no runtime logs.
+    std::wstring missing;
+    for (const wchar_t* name : {L"SDL3.dll", L"avutil-61.dll",
+                                L"avcodec-63.dll", L"avformat-63.dll"}) {
+        if (!FileExists((g_exe_dir / name).wstring())) {
+            if (!missing.empty()) missing += L", ";
+            missing += name;
+        }
+    }
+    if (!missing.empty()) {
+        LauncherLog("Missing game DLLs; rerun tools/scarlet/build_next_version.ps1");
+        const std::wstring message=std::wstring(Tr(
+            L"Faltam DLLs do jogo: ", L"Missing game DLLs: ",
+            L"Faltan DLLs del juego: ", L"DLL du jeu manquantes : ")) + missing +
+            L"\n\n" + Tr(
+            L"Atualize o build e abra LOGS no launcher.",
+            L"Update the build and use OPEN LOGS in the launcher.",
+            L"Actualice la compilación y abra REGISTROS.",
+            L"Mettez à jour la compilation et ouvrez JOURNAUX.");
+        MessageBoxW(g_main,message.c_str(),kTitle,MB_OK|MB_ICONERROR);
+        return;
+    }
     SetNativeFpsEnvironment();
     std::wstring cmd=QuoteArg(runtime.wstring()) + L" --play " + QuoteArg(InstalledRoot().wstring());
     std::vector<wchar_t> args(cmd.begin(),cmd.end());args.push_back(L'\0');
+    const fs::path logdir=g_exe_dir / L"user" / L"log";
+    std::error_code ec;
+    fs::create_directories(logdir,ec);
+    const fs::path gameLog=logdir / L"scarlet-game.log";
+    HANDLE output=CreateFileW(gameLog.c_str(),GENERIC_WRITE,FILE_SHARE_READ,
+                               nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    HANDLE input=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,
+                              nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    const bool redirect=output!=INVALID_HANDLE_VALUE && input!=INVALID_HANDLE_VALUE;
     STARTUPINFOW si{};si.cb=sizeof si;
+    if (redirect) {
+        SetHandleInformation(output,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT);
+        SetHandleInformation(input,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT);
+        si.dwFlags=STARTF_USESTDHANDLES;
+        si.hStdOutput=output;
+        si.hStdError=output;
+        si.hStdInput=input;
+    }
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(runtime.c_str(),args.data(),nullptr,nullptr,FALSE,0,nullptr,
-                        g_exe_dir.c_str(),&si,&pi)) {
-        MessageBoxW(g_main,L"Não foi possível iniciar Scarlet.",kTitle,MB_OK|MB_ICONERROR);
+    const BOOL started=CreateProcessW(runtime.c_str(),args.data(),nullptr,nullptr,
+                                     redirect,0,nullptr,g_exe_dir.c_str(),&si,&pi);
+    const DWORD startError=started?ERROR_SUCCESS:GetLastError();
+    if (output!=INVALID_HANDLE_VALUE) CloseHandle(output);
+    if (input!=INVALID_HANDLE_VALUE) CloseHandle(input);
+    if (!started) {
+        LauncherLog("CreateProcess failed with Windows error "+std::to_string(startError));
+        const std::wstring message=std::wstring(Tr(
+            L"Não foi possível iniciar Scarlet. Erro do Windows: ",
+            L"Could not start Scarlet. Windows error: ",
+            L"No se pudo iniciar Scarlet. Error de Windows: ",
+            L"Impossible de démarrer Scarlet. Erreur Windows : "))+
+            std::to_wstring(startError);
+        MessageBoxW(g_main,message.c_str(),kTitle,MB_OK|MB_ICONERROR);
         return;
     }
+    LauncherLog("Game process started");
     CloseHandle(pi.hThread);
     AllowSetForegroundWindow(pi.dwProcessId);
     SetWindowTextW(g_main,L"Scarlet — jogo em execução");
@@ -1304,14 +1355,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         ShowWindow(hwnd, SW_RESTORE);
         SetForegroundWindow(hwnd);
 
+        LauncherLog("Game process exited with code " +
+                    std::to_string(static_cast<LONG>(code)));
         if (code != 0) {
-            std::wstring message = L"Pokémon Scarlet foi encerrado inesperadamente.\nCódigo do processo: " +
-                                   std::to_wstring(static_cast<LONG>(code));
-            if (code == 0xC0000005u) {
-                message += L"\n\n0xC0000005: access violation no runtime/driver.";
+            std::wstring message=std::wstring(Tr(
+                L"Pokémon Scarlet foi encerrado inesperadamente.\nCódigo do processo: ",
+                L"Pokémon Scarlet exited unexpectedly.\nProcess code: ",
+                L"Pokémon Scarlet se cerró inesperadamente.\nCódigo del proceso: ",
+                L"Pokémon Scarlet s'est arrêté.\nCode du processus : ")) +
+                std::to_wstring(static_cast<LONG>(code));
+            if (code == 0xC0000135u) {
+                message += Tr(L"\n\n0xC0000135: DLL ausente.",
+                              L"\n\n0xC0000135: missing DLL.",
+                              L"\n\n0xC0000135: falta una DLL.",
+                              L"\n\n0xC0000135 : DLL manquante.");
+            } else if (code == 0xC0000005u) {
+                message += Tr(L"\n\n0xC0000005: violação de acesso no jogo/driver.",
+                              L"\n\n0xC0000005: game/driver access violation.",
+                              L"\n\n0xC0000005: violación de acceso.",
+                              L"\n\n0xC0000005 : violation d'accès.");
             }
-            message += L"\n\nAbra a aba GERAL > ABRIR LOGS para o diagnóstico.";
-            MessageBoxW(hwnd, message.c_str(), L"Scarlet — jogo encerrado", MB_OK | MB_ICONERROR);
+            message += Tr(L"\n\nUse o botão ABRIR LOGS no launcher.",
+                          L"\n\nUse OPEN LOGS on the launcher.",
+                          L"\n\nUse VER REGISTROS en el launcher.",
+                          L"\n\nUtilisez OUVRIR JOURNAUX dans le lanceur.");
+            MessageBoxW(hwnd,message.c_str(),L"Scarlet",MB_OK|MB_ICONERROR);
         }
         return 0;
     }
