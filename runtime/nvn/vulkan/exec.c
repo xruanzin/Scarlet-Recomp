@@ -5718,6 +5718,25 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
         shadow_slot_check(stage, st_, i, h, tic, ent, ent && ent->tex ? (naliases ? alias_read(ent->tex) : ent->tex) : NULL, &view);
     if (!view) view = vk_dummy_view(st_->type);
     if (!smp) smp = vk_default_sampler(!st_->stencil && !st_->sint);
+    // The sky volume can be CPU-uploaded or produced by guest GPU commands.
+    // A block-depth deswizzle experiment only affects CPU-uploaded volumes.
+    // Log this provenance once so a missing raw dump is never misdiagnosed.
+    if (stage == STAGE_FRAGMENT && i == 0 && st_->type == TEXTYPE_3D &&
+        g_cur_fs_hash == 0x9543b220d1d35f7bull &&
+        (ENV("SCARLET_SKY_VOLUME_DUMP") || ENV("SCARLET_SKY_VOLUME_DEPTH"))) {
+        static bool reported_volume;
+        if (!reported_volume) {
+            reported_volume = true;
+            NvnTexture *sky = ent ? ent->tex : NULL;
+            TexBackend *vb = sky ? (TexBackend *)sky->backend : NULL;
+            LOG("[scarlet-sky] volume binding: tex %p guest %#llx 32x128x32 fmt %#x; gpu_owned %d uploaded %d block height %u block depth %u\n",
+                (void *)sky, (unsigned long long)(sky ? sky->addr : 0),
+                sky ? sky->format : 0, vb ? vb->gpu_owned : -1,
+                vb ? vb->uploaded : -1,
+                sky ? sky->layout.block_height_log2 : 0,
+                sky ? sky->layout.block_depth_log2 : 0);
+        }
+    }
     *out = (VkDescriptorImageInfo){smp, view, VK_IMAGE_LAYOUT_GENERAL};
     scarlet_sky_audit_binding(stage, st_, i, h, ent, view);
 }
