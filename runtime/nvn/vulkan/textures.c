@@ -1390,6 +1390,12 @@ VkImageView vk_render_view(NvnTexture *t, const NvnTextureView *v, bool has_view
 VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool render, int want_textype) {
     if (render) return vk_render_view(t, v, has_view, NULL);
     TexBackend *b = vk_tex(t, render);
+    return vk_sample_view(t, b, v, has_view, want_textype);
+}
+
+// Feedback copies share storage, not descriptor interpretation. In particular, two
+// slots may read depth and stencil from the same image in the same draw.
+VkImageView vk_sample_view(NvnTexture *t, TexBackend *b, const NvnTextureView *v, bool has_view, int want_textype) {
     if (!has_view) v = NULL;
     VkFormat fmt = b->format;
     if (v && (v->setmask & 4) && !(b->aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))) {
