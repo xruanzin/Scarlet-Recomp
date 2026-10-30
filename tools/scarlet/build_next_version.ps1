@@ -142,7 +142,7 @@ function Install-ScarletLauncherDlls {
         $imports.Enqueue($dll)
     }
 
-    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $seen = @{}  # PowerShell 5.1 case-insensitive keys
     $scan = New-Object 'System.Collections.Generic.Queue[string]'
     $scan.Enqueue($launcherExe)
     while ($scan.Count -gt 0) {
@@ -160,7 +160,8 @@ function Install-ScarletLauncherDlls {
     # Breadth-first copy: add each newly copied DLL to the import scanner.
     while ($imports.Count -gt 0) {
         $dll = $imports.Dequeue()
-        if (!$seen.Add($dll)) { continue }
+        if ($seen.ContainsKey($dll)) { continue }
+        $seen[$dll] = $true
         $sourceDll = Join-Path $msysBin $dll
         if (!(Test-Path -LiteralPath $sourceDll)) { continue }
         $targetDll = Join-Path $ExecutableDirectory $dll
