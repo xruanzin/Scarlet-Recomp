@@ -116,6 +116,79 @@ if (!$SkipRuntime) {
     Write-Host 'Scarlet Win32 e runtime compilados. Abra scarlet.exe sem --play.'
 }
 
+# Ship the MSYS2/UCRT64 C++ runtime beside the standalone Win32 launcher.
+# Windows does not search C:\\msys64\\ucrt64\\bin automatically when users open
+# ScarletLauncher.exe by double-click. Walk its imported DLLs recursively so
+# transitive libgcc/libwinpthread dependencies are included too.
+# Never copy DLLs from System32 or overwrite DLLs that are not from our
+# configured UCRT64 toolchain.
+function Install-ScarletLauncherDlls {
+    param([string]$ExecutableDirectory)
+
+    $msysBin = 'C:\msys64\ucrt64\bin'
+    $launcherExe = Join-Path $ExecutableDirectory 'ScarletLauncher.exe'
+    if (!(Test-Path -LiteralPath $launcherExe)) { return }
+    if (!(Test-Path -LiteralPath $msysBin)) {
+        throw "MSYS2 UCRT64 nao encontrado: $msysBin"
+    }
+
+    $env:PATH = "$msysBin;C:\msys64\usr\bin;" + $env:PATH
+    $objdump = Get-Command 'objdump.exe' -ErrorAction SilentlyContinue
+    if (!$objdump) { $objdump = Get-Command 'llvm-objdump.exe' -ErrorAction SilentlyContinue }
+
+    # Guaranteed essentials even when objdump is not installed.
+    $imports = New-Object 'System.Collections.Generic.Queue[string]'
+    foreach ($dll in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll')) {
+        $imports.Enqueue($dll)
+    }
+
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $scan = New-Object 'System.Collections.Generic.Queue[string]'
+    $scan.Enqueue($launcherExe)
+    while ($scan.Count -gt 0) {
+        $sourceExe = $scan.Dequeue()
+        if (!$objdump) { continue }
+        $report = @(& $objdump.Source -p $sourceExe 2>$null)
+        if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel inspecionar as DLLs: $sourceExe" }
+        foreach ($line in $report) {
+            if ($line -match '^\s*DLL Name:\s*([^\s]+)') {
+                $imports.Enqueue($Matches[1])
+            }
+        }
+    }
+
+    # Breadth-first copy: add each newly copied DLL to the import scanner.
+    while ($imports.Count -gt 0) {
+        $dll = $imports.Dequeue()
+        if (!$seen.Add($dll)) { continue }
+        $sourceDll = Join-Path $msysBin $dll
+        if (!(Test-Path -LiteralPath $sourceDll)) { continue }
+        $targetDll = Join-Path $ExecutableDirectory $dll
+        if (!(Test-Path -LiteralPath $targetDll)) {
+            Copy-Item -LiteralPath $sourceDll -Destination $targetDll -ErrorAction Stop
+            Write-Host "Dependencia do launcher: $dll"
+        }
+        if ($objdump) {
+            $report = @(& $objdump.Source -p $sourceDll 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao inspecionar DLL: $sourceDll" }
+            foreach ($line in $report) {
+                if ($line -match '^\s*DLL Name:\s*([^\s]+)') {
+                    $imports.Enqueue($Matches[1])
+                }
+            }
+        }
+    }
+
+    foreach ($essential in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll')) {
+        if (!(Test-Path -LiteralPath (Join-Path $ExecutableDirectory $essential))) {
+            throw "Dependencia obrigatoria do launcher nao encontrada: $essential"
+        }
+    }
+}
+
+# Running with -SkipRuntime should still repair DLLs of an already built launcher.
+Install-ScarletLauncherDlls -ExecutableDirectory $bin
+
 # Copy the original background image from the owner's Scarlet PC launcher.
 # It is downloaded directly from the specified GitHub branch, without changing
 # the source repository. A missing network connection only affects the backdrop.
