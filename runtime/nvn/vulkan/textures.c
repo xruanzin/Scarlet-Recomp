@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "../rqueue.h"
+#include "../packed16.h"
 #include "vk.h"
 #include "record.h"
 #include "../astc.h"
@@ -91,9 +92,13 @@ static VkFmt fmt_of(uint32_t f) {
     case 0x36: return (VkFmt){VK_FORMAT_D32_SFLOAT_S8_UINT};
     case 0x37: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB, 0, 1};
     case 0x38: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB};
-    case 0x39: return (VkFmt){VK_FORMAT_R4G4B4A4_UNORM_PACK16};   // Metal ABGR4Unorm
+    // NVN RGBA4 uses R in bits 0-3 and A in bits 12-15, while Vulkan's
+    // R4G4B4A4_PACK16 has a different bit order. Expand to uncompressed RGBA8.
+    case 0x39: return (VkFmt){VK_FORMAT_R8G8B8A8_UNORM, 2};
     case 0x3A: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};     // Metal B5G6R5Unorm
-    case 0x3B: return (VkFmt){VK_FORMAT_R5G5B5A1_UNORM_PACK16};   // Metal A1BGR5Unorm
+    // NVN RGB5A1 has R in bits 0-4 and A at bit 15; Vulkan R5G5B5A1
+    // would read both the red and alpha channels from the opposite end.
+    case 0x3B: return (VkFmt){VK_FORMAT_R8G8B8A8_UNORM, 3};
     case 0x3C: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};
     case 0x3D: return (VkFmt){VK_FORMAT_A2B10G10R10_UNORM_PACK32};
     case 0x3E: return (VkFmt){VK_FORMAT_A2B10G10R10_UINT_PACK32};
@@ -1121,7 +1126,10 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
             }
             uint32_t row = l.wb * fi->bpb;
             uint64_t sz = (uint64_t)row * l.hb * l.d;
-            bool expand = mf.expand_rgb && fi->bpb == 3;
+            // 1 = RGB8 (3 bytes), 2 = RGBA4 and 3 = RGB5A1 (2 bytes).
+            // Packed16 must be unpacked before uploading to an RGBA8 Vulkan image.
+            bool expand = (mf.expand_rgb == 1 && fi->bpb == 3) ||
+                          (mf.expand_rgb >= 2 && fi->bpb == 2);
             uint32_t out_row = expand ? l.wb * 4 : row;
             VkSpan s = vk_transient((uint64_t)out_row * l.hb * l.d, 16);
             uint8_t *lin = expand ? malloc(sz) : s.ptr;
@@ -1133,10 +1141,16 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
                 up_bytes += sz;
             } else unpack_one(&u);
             if (b->tp > 0 && layer == 0) texpatch_apply(b->tp - 1, lv, lin, l.w, l.h, row);
-            if (expand) {  // RGB8 -> RGBA8
+            if (expand) {  // RGB8, RGBA4, RGB5A1 -> RGBA8 (including every mip/layer)
                 uint8_t *o = s.ptr;
-                uint64_t n = (uint64_t)l.wb * l.hb * l.d;
-                for (uint64_t i = 0; i < n; i++) { o[i * 4] = lin[i * 3]; o[i * 4 + 1] = lin[i * 3 + 1]; o[i * 4 + 2] = lin[i * 3 + 2]; o[i * 4 + 3] = 255; }
+                size_t n = (size_t)l.wb * l.hb * l.d;
+                if (mf.expand_rgb == 1) {
+                    for (size_t i = 0; i < n; i++) {
+                        o[i * 4] = lin[i * 3]; o[i * 4 + 1] = lin[i * 3 + 1];
+                        o[i * 4 + 2] = lin[i * 3 + 2]; o[i * 4 + 3] = 255;
+                    }
+                } else if (mf.expand_rgb == 2) nvn_unpack_rgba4(o, lin, n);
+                else nvn_unpack_rgb5a1(o, lin, n);
                 free(lin);
             }
             uint32_t w = l.w, hh = l.h, d = l.d;
