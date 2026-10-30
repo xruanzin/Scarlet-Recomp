@@ -281,9 +281,18 @@ gen-objs: $(GEN_OBJ)
 # Runtime objects only (no generated code, no link): quick compile check
 runtime-objs: $(RT_OBJ) $(BACKEND_OBJ) $(UI_OBJ)
 
-$(B)/rt/platform/windows_rc.o: runtime/platform/windows.rc docs/icon/icon.ico runtime/platform/windows.manifest
+# A user-provided Scarlet icon is installed locally by build_next_version.ps1.
+# Never replace the upstream ZA icon or require a binary asset in ordinary builds.
+ifeq ($(SCARLET_AOT),1)
+ifneq ($(wildcard docs/icon/scarlet.ico),)
+SCARLET_ICON_DEP := docs/icon/scarlet.ico
+SCARLET_ICON_DEFS := -DSCARLET_CUSTOM_ICON=1
+endif
+SCARLET_ICON_DEFS += -DSCARLET_AOT=1
+endif
+$(B)/rt/platform/windows_rc.o: runtime/platform/windows.rc docs/icon/icon.ico runtime/platform/windows.manifest $(SCARLET_ICON_DEP)
 	@mkdir -p $(dir $@)
-	$(WINDRES) -I docs/icon -I runtime/platform -O coff $< -o $@
+	$(WINDRES) $(SCARLET_ICON_DEFS) -I docs/icon -I runtime/platform -O coff $< -o $@
 
 VERSION  := $(shell sed -n 's/^\#define LARECOMP_VERSION "\(.*\)"/\1/p' runtime/ui/launcher.mm)
 
