@@ -569,16 +569,21 @@ static bool RunProcess(const fs::path& exe, const std::wstring& args,
     PROCESS_INFORMATION pi{};
     HANDLE logfile = CreateFileW(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
                                  nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (logfile != INVALID_HANDLE_VALUE) {
+    HANDLE input = CreateFileW(L"NUL", GENERIC_READ,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const bool redirect = logfile != INVALID_HANDLE_VALUE && input != INVALID_HANDLE_VALUE;
+    if (redirect) {
         SetHandleInformation(logfile,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT);
+        SetHandleInformation(input,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT);
         si.dwFlags |= STARTF_USESTDHANDLES;
-        si.hStdOutput = logfile; si.hStdError=logfile;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = logfile; si.hStdError=logfile; si.hStdInput=input;
     }
     BOOL ok = CreateProcessW(exe.c_str(), mutableCmd.data(),nullptr,nullptr,
-                             logfile != INVALID_HANDLE_VALUE, CREATE_NO_WINDOW,
+                             redirect, CREATE_NO_WINDOW,
                              nullptr,g_exe_dir.c_str(),&si,&pi);
     if (logfile != INVALID_HANDLE_VALUE) CloseHandle(logfile);
+    if (input != INVALID_HANDLE_VALUE) CloseHandle(input);
     if (!ok) return false;
     CloseHandle(pi.hThread);
     WaitForSingleObject(pi.hProcess, INFINITE);
@@ -1038,6 +1043,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     g_instance = instance;
+    // Required by modern Shell folder dialogs (BIF_NEWDIALOGSTYLE).
+    HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES};
@@ -1117,5 +1124,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (g_panel_brush) DeleteObject(g_panel_brush);
     g_background.reset();
     GdiplusShutdown(g_gdiplus_token);
+    if (SUCCEEDED(com)) CoUninitialize();
     return static_cast<int>(msg.wParam);
 }
