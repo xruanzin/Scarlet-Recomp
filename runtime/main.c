@@ -316,32 +316,47 @@ static void teardown(void) {
     LOG("[reboot] game torn down in %llums (%d reset hooks)\n", (unsigned long long)((plat_now_ns() - t0) / 1000000), n);
 }
 
-// Scarlet 4.0.0: adapted from the v4.0.0 60FPS community frame-duration
-// constant (MAIN+0x03c2fbb0: 33333334ns -> 16666667ns). The other community
-// write targets an uncommitted guest region in this AOT runtime, so we DO NOT
-// blindly write there; NVN interval is changed through our host window hook.
-// Guard by actual module memory size and the original 30Hz value.
-bool g_scarlet_native_fps60;
+// Scarlet 4.0.0 frame-duration experiment. The 60Hz constant at
+// MAIN+0x03c2fbb0 was previously validated by the community patch. 120/240
+// are scaled candidates only, and require gameplay/simulation validation.
+// Do not touch the unrelated uncommitted guest memory at MAIN+0x05befce4.
+int g_scarlet_target_fps = 30;
+bool g_scarlet_native_fps60;  // compatibility with legacy diagnostics
 static void scarlet_fps60_setup(void) {
+    g_scarlet_target_fps = 30;
     g_scarlet_native_fps60 = false;
 #ifdef SCARLET_AOT
-    const char *e = getenv("SCARLET_FPS60");
-    if (!e || strcmp(e, "1") != 0) return;
+    const char *requested = getenv("SCARLET_TARGET_FPS");
+    int target = requested ? atoi(requested) :
+        (getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1") ? 60 : 30);
+    if (target != 30 && target != 60 && target != 120 && target != 240) {
+        LOG("[scarlet-fps] unsupported FPS setting %d; falling back to 30\n",target);
+        target = 30;
+    }
+    if (target == 30) {
+        LOG("[scarlet-fps] native target 30 FPS (baseline)\n");
+        return;
+    }
     if (g_program_id != 0x0100a3d008c5c000ull || !g_nmodules ||
         g_modules[0].base != MAIN_BASE ||
         g_modules[0].size < 0x03c2fbb0ull + sizeof(uint32_t)) {
-        LOG("[scarlet-fps60] unsafe module/program for 60Hz patch; left at 30\n");
+        LOG("[scarlet-fps] unknown program/module; requested %d FPS not applied\n",target);
         return;
     }
     uint32_t *ns = (uint32_t *)(uintptr_t)(MAIN_BASE + 0x03c2fbb0ull);
     const uint32_t before = *ns;
-    if (before != 0x01fca056u && before != 0x00fe502bu) {
-        LOG("[scarlet-fps60] frame duration unexpected: 0x%08x (expected 0x01fca056); 60Hz disabled\n", before);
+    if (before != 33333334u && before != 16666667u &&
+        before != 8333333u && before != 4166667u) {
+        LOG("[scarlet-fps] unexpected frame period %#x; keeping 30 FPS\n",before);
         return;
     }
-    *ns = 0x00fe502bu;
-    g_scarlet_native_fps60 = true;
-    LOG("[scarlet-fps60] 4.0.0 native experimental: 33333334 -> 16666667 ns; Vulkan interval 1. Validate world/animations/battle speed.\n");
+    const uint32_t period = target == 60 ? 16666667u :
+                            target == 120 ? 8333333u : 4166667u;
+    *ns = period;
+    g_scarlet_target_fps = target;
+    g_scarlet_native_fps60 = target >= 60;
+    LOG("[scarlet-fps] requested %d FPS, period %u ns, NVN interval %d; 120/240 experimental\n",
+        target,period,target <= 60 ? 1 : 0);
 #endif
 }
 
