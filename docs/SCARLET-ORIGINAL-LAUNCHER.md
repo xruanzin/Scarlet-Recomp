@@ -43,3 +43,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_ne
 
 Compilação/importação/60 FPS ainda precisam ser validados no
 Windows com os arquivos locais do jogo. A AOT não é regenerada.
+
+## Falha de inicialização resolvida: dependências UCRT64
+
+O teste no Windows mostrou que `ScarletLauncher.exe` não iniciava
+porque não encontrava `libstdc++-6.dll` e `libgcc_s_seh-1.dll`.
+Essas DLLs são dependências dinâmicas do launcher original (C++/MSYS2),
+não são arquivos do jogo nem da AOT.
+
+`build_next_version.ps1` passa a copiar automaticamente o runtime do
+compilador a partir de `C:\msys64\ucrt64\bin`, incluindo
+`libwinpthread-1.dll`, e inspeciona dependências transitivas usando
+`objdump.exe` quando disponível. Nunca procura DLLs em sites
+de terceiros, não sobrescreve DLLs existentes nem altera o PATH global.
+
+Para reparar **sem recompilar**, caso os dois executáveis já existam:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipRuntime -SkipImporter
+```
+
+Para recompilar o runtime e atualizar as DLLs:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipImporter
+```
+
+A verificação final de inicialização é necessária no Windows do usuário.
