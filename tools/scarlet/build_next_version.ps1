@@ -24,13 +24,52 @@ $env:TMP = Join-Path $cache 'tmp'
 $env:TEMP = $env:TMP
 New-Item -ItemType Directory -Force $env:TMP | Out-Null
 
+# A runtime-only 'dotnet.exe' exists on many Windows PCs, but it cannot run
+# 'dotnet publish'. Check actual SDK installations, not just Get-Command.
+function Has-DotnetSdk([string]$Exe) {
+    if (!$Exe -or !(Test-Path -LiteralPath $Exe)) { return $false }
+    $installed = @(& $Exe --list-sdks 2>$null)
+    return ($LASTEXITCODE -eq 0 -and $installed.Count -gt 0)
+}
+
 if (!$SkipImporter) {
-    if (!(Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        throw 'Para compilar o importador NSP/XCI, instale o .NET 8 SDK (dotnet).'
+    $sdkRoot = Join-Path $cache 'dotnet-sdk-8'
+    $sdkExe = Join-Path $sdkRoot 'dotnet.exe'
+    $dotnet = $null
+    $systemDotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($systemDotnet -and (Has-DotnetSdk $systemDotnet.Source)) {
+        $dotnet = $systemDotnet.Source
+    } elseif (Has-DotnetSdk $sdkExe) {
+        $dotnet = $sdkExe
+    } else {
+        # Microsoft official non-admin bootstrap, installed only in this
+        # repository's D: cache. It does not modify global PATH or registry.
+        $installer = Join-Path $cache 'dotnet-install.ps1'
+        $installerUrl = 'https://dot.net/v1/dotnet-install.ps1'
+        Write-Host 'Nenhum .NET SDK encontrado. Instalando SDK .NET 8 no cache local do Scarlet (D:) ...'
+        if (!(Test-Path -LiteralPath $installer)) {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -UseBasicParsing -Uri $installerUrl -OutFile $installer -ErrorAction Stop
+        }
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+            -Channel 8.0 -Architecture x64 -InstallDir $sdkRoot -NoPath
+        if ($LASTEXITCODE -ne 0 -or !(Has-DotnetSdk $sdkExe)) {
+            throw 'Falha ao instalar o SDK .NET 8 no D:. Verifique rede/espaco livre.'
+        }
+        $dotnet = $sdkExe
     }
+
+    if ($dotnet -eq $sdkExe) {
+        $env:DOTNET_ROOT = $sdkRoot
+        $env:PATH = "$sdkRoot;" + $env:PATH
+    }
+    $env:DOTNET_NOLOGO = '1'
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    Write-Host "SDK selecionado: $dotnet"
+    & $dotnet --list-sdks
     $project = Join-Path $repo 'tools\scarletimport\scarletimport.csproj'
     $target = Join-Path $bin 'scarletimport'
-    & dotnet publish $project -r win-x64 --self-contained true -c Release -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $target
+    & $dotnet publish $project -r win-x64 --self-contained true -c Release -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $target
     if ($LASTEXITCODE -ne 0) { throw 'Falha no dotnet publish scarletimport' }
     if (!(Test-Path (Join-Path $target 'scarletimport.exe'))) {
         throw 'scarletimport.exe nao foi gerado'
