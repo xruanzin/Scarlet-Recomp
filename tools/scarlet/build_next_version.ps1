@@ -190,19 +190,46 @@ function Install-ScarletLauncherDlls {
 # Running with -SkipRuntime should still repair DLLs of an already built launcher.
 Install-ScarletLauncherDlls -ExecutableDirectory $bin
 
-# Copy the original background image from the owner's Scarlet PC launcher.
-# It is downloaded directly from the specified GitHub branch, without changing
-# the source repository. A missing network connection only affects the backdrop.
+# Scarlet/Violet artwork selected by the user; never download the old
+# Scarlet PC background again. Prefer the versioned new asset, then the
+# original user's JPG in their local project / Downloads / Pictures.
 $assets = Join-Path $bin 'assets'
 $background = Join-Path $assets 'scarlet_launcher_background.jpg'
-if (!(Test-Path -LiteralPath $background)) {
-    New-Item -ItemType Directory -Path $assets -Force | Out-Null
-    $oldBgUrl = 'https://raw.githubusercontent.com/xruanzin/scarlet_pc/7cf8e933931b8666f819a8a85d5ea9360c35cf37/launcher/assets/scarlet_launcher_background.jpg'
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri $oldBgUrl -OutFile $background -ErrorAction Stop
-        Write-Host 'Fundo original do Scarlet PC copiado.'
-    } catch {
-        Write-Warning 'Nao foi possivel copiar o fundo original; a interface usa a cor base.'
+New-Item -ItemType Directory -Path $assets -Force | Out-Null
+$imageName = 'Pokemon-Scarlet-Violet-Trailer_10-06-22(2).jpg'
+$candidates = @(
+    (Join-Path $repo 'launcher\assets\scarlet_launcher_background.jpg'),
+    (Join-Path $repo $imageName),
+    (Join-Path $repo 'launcher\assets' $imageName),
+    (Join-Path $env:USERPROFILE "Downloads\$imageName"),
+    (Join-Path $env:USERPROFILE "Pictures\$imageName"),
+    (Join-Path $env:USERPROFILE "Desktop\$imageName")
+)
+$artwork = $null
+foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $artwork = (Resolve-Path -LiteralPath $candidate).Path
+        break
+    }
+}
+if (!$artwork) {
+    foreach ($folder in @('Downloads', 'Pictures', 'Desktop')) {
+        $rootFolder = Join-Path $env:USERPROFILE $folder
+        if (!(Test-Path -LiteralPath $rootFolder)) { continue }
+        $match = Get-ChildItem -LiteralPath $rootFolder -Filter $imageName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($match) { $artwork = $match.FullName; break }
+    }
+}
+if ($artwork) {
+    if ($artwork -ne $background) {
+        Copy-Item -LiteralPath $artwork -Destination $background -Force
+    }
+    Write-Host 'Fundo Scarlet/Violet instalado.'
+} else {
+    Write-Warning 'A foto Scarlet/Violet nao foi encontrada. Coloque Pokemon-Scarlet-Violet-Trailer_10-06-22(2).jpg na raiz do repositorio.'
+    # Do not keep accidentally rendering the previous Scarlet PC art.
+    if (Test-Path -LiteralPath $background) {
+        Move-Item -LiteralPath $background -Destination (Join-Path $assets 'old_scarlet_pc_background.jpg') -Force
     }
 }
 
