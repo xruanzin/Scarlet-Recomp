@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
     c->ipa_mode = -1;
     c->omap_target = 15;
     c->reg_used[47] = 1;
-    sp(&c->body, "    r47 = 24u;\\n");
+    sp(&c->body, "    r47 = 24u;\n");
     unsigned long long w = 0x3800000000000000ull |
         (0x303ull << 20) | (7ull << 16) |
         ((unsigned long long)(incompatible ? 46 : 47) << 8) | 62ull;
@@ -59,7 +59,7 @@ class MaterialMask(unittest.TestCase):
                             str(src), "-lm", "-o", str(cls.exe)],
                            text=True, capture_output=True)
         if p.returncode:
-            raise AssertionError("Translator harness compilation failed:\\n" + p.stderr)
+            raise AssertionError("Translator harness compilation failed:\n" + p.stderr)
 
     def shader(self, mode, incompatible=False):
         p = subprocess.run([str(self.exe), str(mode), "1" if incompatible else "0"],
