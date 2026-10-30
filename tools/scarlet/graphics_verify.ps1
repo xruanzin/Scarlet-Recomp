@@ -7,7 +7,7 @@ param(
     [switch]$DumpFocusShaders,
     [ValidateSet('baseline','linear','nearest')]
     [string]$Sky3DFilter = 'baseline',
-    [ValidateSet('baseline','mask','isotropic')]
+    [ValidateSet('baseline','mask','isotropic','albedo')]
     [string]$HairMode = 'baseline',
     [ValidateRange(0,1000000)]
     [int]$GraphicsFromFrame = 600,
