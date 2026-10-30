@@ -947,7 +947,7 @@ void DrawBackground(HWND hwnd, HDC hdc) {
         const UINT image_width = g_background->GetWidth();
         const UINT image_height = g_background->GetHeight();
         if (image_width > 0 && image_height > 0) {
-            const double scale = std::min(
+            const double scale = std::max(
                 static_cast<double>(width) / static_cast<double>(image_width),
                 static_cast<double>(height) / static_cast<double>(image_height));
             const int draw_width =
@@ -960,25 +960,47 @@ void DrawBackground(HWND hwnd, HDC hdc) {
         }
     }
 
-    SolidBrush left_panel(Color(220, 16, 10, 16));
+    // Opaque cards and parent-rendered text avoid Win32 STATIC's transparent
+    // child repaint artifacts (overlapping labels during status changes).
+    SolidBrush left_panel(Color(245, 19, 13, 22));
     graphics.FillRectangle(&left_panel, 0, 0, 260, height);
-
-    SolidBrush content_panel(Color(220, 17, 14, 20));
+    SolidBrush content_panel(Color(242, 23, 17, 28));
     graphics.FillRectangle(&content_panel, 270, 72, width - 300, height - 132);
 
-    Pen gold(Color(230, 222, 181, 46), 2.0f);
+    Pen gold(Color(236, 222, 181, 46), 2.0f);
     graphics.DrawLine(&gold, 270, 72, width - 30, 72);
     graphics.DrawLine(&gold, 270, height - 60, width - 30, height - 60);
 
     FontFamily family(L"Segoe UI");
+    graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
     Gdiplus::Font title_font(&family, 28.0f, FontStyleBold, UnitPixel);
+    Gdiplus::Font heading(&family, 21.0f, FontStyleBold, UnitPixel);
+    Gdiplus::Font label(&family, 16.0f, FontStyleRegular, UnitPixel);
+    Gdiplus::Font status_font(&family, 16.0f, FontStyleSemibold, UnitPixel);
     SolidBrush title_brush(Color(255, 245, 213, 77));
-    graphics.DrawString(L"SCARLET PC", -1, &title_font, PointF(28.0f, 94.0f), &title_brush);
+    SolidBrush text_brush(Color(255, 244, 238, 226));
+    SolidBrush muted(Color(255, 185, 177, 179));
+    graphics.DrawString(L"SCARLET", -1, &title_font, PointF(28.0f, 94.0f), &title_brush);
+    graphics.DrawString(L"Pokémon Scarlet • Windows", -1, &label,
+                        PointF(30.0f, 135.0f), &text_brush);
 
-    Gdiplus::Font small_font(&family, 13.0f, FontStyleRegular, UnitPixel);
-    SolidBrush small_brush(Color(220, 240, 231, 213));
-    graphics.DrawString(L"Pokémon Scarlet • Windows", -1, &small_font,
-                        PointF(30.0f, 133.0f), &small_brush);
+    graphics.DrawString(L"JOGO E CONTEÚDO", -1, &heading,
+                        PointF(300.0f, 103.0f), &title_brush);
+    graphics.DrawString(L"Pasta do jogo (.NSP / .XCI)", -1, &label,
+                        PointF(300.0f, 153.0f), &text_brush);
+    graphics.DrawString(L"PACOTES", -1, &heading,
+                        PointF(300.0f, 258.0f), &title_brush);
+
+    SolidBrush status_panel(Color(255, 36, 28, 38));
+    graphics.FillRectangle(&status_panel, 300, 532, 823, 67);
+    Pen status_line(Color(255, 95, 74, 62));
+    graphics.DrawRectangle(&status_line, 300, 532, 823, 67);
+    if (!g_status_text.empty()) {
+        graphics.DrawString(g_status_text.c_str(), -1, &status_font,
+                            PointF(314.0f, 552.0f), &text_brush);
+    }
+    graphics.DrawString(L"Atualização e DLCs detectadas automaticamente",
+                        -1, &label, PointF(300.0f, 608.0f), &muted);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1063,8 +1085,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wparam);
         SetTextColor(dc, RGB(244, 238, 226));
-        SetBkMode(dc, TRANSPARENT);
-        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+        SetBkColor(dc, RGB(20, 16, 21));
+        SetBkMode(dc, OPAQUE);
+        return reinterpret_cast<LRESULT>(g_panel_brush);
     }
     case WM_CTLCOLOREDIT:
     case WM_CTLCOLORLISTBOX: {
