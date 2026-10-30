@@ -6696,7 +6696,6 @@ static void draw_(CmdRec *r, bool indexed) {
         extern void widescreen_scene_ubo(const float *u, uint64_t size);  // (the camera's view-projection)
         if (st.ubuf[0][5].addr) widescreen_scene_ubo((const float *)(uintptr_t)st.ubuf[0][5].addr, st.ubuf[0][5].size);
     }
-    scarlet_graphics_audit_draw(pr);
     mv_note_draw(pr);
     if (fsr2_wanted() && fsr2_copy(pr)) return;  // (FSR 2 resolved the frame in place of the game's copy)
     if (g_debug_frame) debug_draw(pr, r, indexed);
@@ -6712,6 +6711,7 @@ static void draw_(CmdRec *r, bool indexed) {
     if (lighting) gtao_before_lighting(pr);  // (GTAO from the scene depth, before the lighting reads the G-buffer)
     if (water_is_surface(pr)) water_before();  // (the depth and the lit image before the water: water_apply)
     begin_pass();
+    scarlet_graphics_audit_draw(pr);  // after feedback resolution and pass setup, not skipped/replaced draws
     if (lighting) gtao_mark(st.rt.ncolor ? st.rt.color[0] : NULL);
     VkCommandBuffer cb = vk_cmd();
 
