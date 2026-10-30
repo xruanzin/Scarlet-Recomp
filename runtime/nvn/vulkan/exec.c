@@ -5454,6 +5454,54 @@ static void shadow_slot_check(int stage, const ShaderTexture *st_, int i, uint64
     *view = vk_dummy_depth_view(st_->type);
 }
 
+// Scarlet sky-band investigation. Passive and opt-in: records the texture/view/sampler bindings
+// used by fragment shaders in gameplay, without changing draw commands or descriptor contents.
+// SCARLET_SKY_AUDIT=1; SCARLET_SKY_FROM_FRAME=600 (default). At most 512 distinct bindings.
+static void scarlet_sky_audit_binding(int stage, const ShaderTexture *shader, int slot, uint64_t handle,
+                                       const NvnTexEntry *entry, VkImageView view) {
+    static int enabled = -1;
+    static uint64_t from_frame = 600;
+    static unsigned nseen;
+    static struct { uint64_t fs, handle, view_hash; int slot; } seen[512];
+    if (enabled < 0) {
+        const char *e = ENV("SCARLET_SKY_AUDIT");
+        enabled = e && atoi(e) != 0;
+        const char *from = ENV("SCARLET_SKY_FROM_FRAME");
+        if (from && *from) from_frame = strtoull(from, NULL, 10);
+    }
+    if (!enabled || stage != 1 || !handle || !entry || !entry->tex || nseen >= 512) return;
+    extern uint64_t vk_frame_counter(void);
+    uint64_t frame = vk_frame_counter();
+    if (frame < from_frame) return;
+    uint64_t vh = entry->has_view ? hash_words(0, &entry->view, sizeof entry->view) : 0;
+    for (unsigned k = 0; k < nseen; k++)
+        if (seen[k].fs == g_cur_fs_hash && seen[k].handle == handle && seen[k].view_hash == vh &&
+            seen[k].slot == slot) return;
+    seen[nseen].fs = g_cur_fs_hash;
+    seen[nseen].handle = handle;
+    seen[nseen].view_hash = vh;
+    seen[nseen++].slot = slot;
+    const NvnTexture *t = entry->tex;
+    const TexBackend *b = t->backend;
+    uint32_t smp_index = (uint32_t)(handle >> 20) & 0xFFF;
+    const NvnSamplerDesc *sd = st.spool && smp_index < (uint32_t)st.spool->count
+        ? &((NvnSamplerDesc *)st.spool->entries)[smp_index] : NULL;
+    LOG("[skyaudit] frame %llu fs %016llx slot %d type %d shadow %u stencil %u "
+        "handle %#llx view_valid %d tex %p target %u fmt %#x %ux%ux%u "
+        "vkfmt %d vktype %d levels %u layers %u viewmask %#x lv %u+%u layer %u+%u "
+        "sampler min %u mag %u wrap %u/%u/%u bias %.2f lod %.2f-%.2f\n",
+        (unsigned long long)frame, (unsigned long long)g_cur_fs_hash, slot, shader->type,
+        (unsigned)shader->shadow, (unsigned)shader->stencil, (unsigned long long)handle,
+        view != VK_NULL_HANDLE, (const void *)t, t->target, t->format, t->width, t->height, t->depth,
+        b ? b->format : 0, b ? b->base_type : 0, b ? b->levels : 0, b ? b->layers : 0,
+        entry->has_view ? entry->view.setmask : 0,
+        entry->has_view ? entry->view.base_level : 0, entry->has_view ? entry->view.num_levels : 0,
+        entry->has_view ? entry->view.min_layer : 0, entry->has_view ? entry->view.num_layers : 0,
+        sd ? sd->min_filter : 0, sd ? sd->mag_filter : 0,
+        sd ? sd->wrap[0] : 0, sd ? sd->wrap[1] : 0, sd ? sd->wrap[2] : 0,
+        sd ? sd->lod_bias : 0.0, sd ? sd->lod_min : 0.0, sd ? sd->lod_max : 0.0);
+}
+
 static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo *out, float sc[2], uint32_t wh[2], float fr[2]) {
     ShaderTexture *st_ = &si->tex[i];
     int slot = ((int)st_->handle_offset - 0x20) / 8;  // 64-bit handles from offset 0x20
@@ -5553,6 +5601,7 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
     if (!view) view = vk_dummy_view(st_->type);
     if (!smp) smp = vk_default_sampler(!st_->stencil && !st_->sint);
     *out = (VkDescriptorImageInfo){smp, view, VK_IMAGE_LAYOUT_GENERAL};
+    scarlet_sky_audit_binding(stage, st_, i, h, ent, view);
 }
 
 // Writes the descriptor set of one stage. gx..gz: compute group counts (driver constants).
