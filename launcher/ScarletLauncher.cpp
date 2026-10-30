@@ -756,7 +756,7 @@ static void StartNativeGame() {
     }
     CloseHandle(pi.hThread);
     AllowSetForegroundWindow(pi.dwProcessId);
-    SetWindowTextW(g_main,L"Scarlet PC — jogo em execução");
+    SetWindowTextW(g_main,L"Scarlet — jogo em execução");
     ShowWindow(g_main,SW_MINIMIZE);
     auto* context=new GameWaitContext{pi.hProcess,g_main};
     HANDLE waiter=CreateThread(nullptr,0,WaitForGameProcess,context,0,nullptr);
@@ -783,11 +783,20 @@ void LaunchGame() {
 
 
 void CreateGamePage() {
-    MakeStatic(Game, 300, 102, 700, 34, L"JOGO E CONTEÚDO", true);
-    MakeStatic(Game, 300, 152, 420, 24, L"Pasta do jogo (.NSP / .XCI)");
-    g_game_edit = MakeEdit(Game, ID_GAME_EDIT, 300, 178, 650, 32);
-    MakeButton(Game, ID_GAME_BROWSE, 964, 178, 150, 32, L"PROCURAR");
-    g_status = MakeStatic(Game, 300, 252, 800, 44, L"", false);
+    // All labels/status are painted by GDI+ in WM_PAINT. Never redraw
+    // transparent STATIC labels over the background (text ghosting bug).
+    g_game_edit = MakeEdit(Game,ID_GAME_EDIT,300,186,640,36);
+    MakeButton(Game,ID_GAME_BROWSE,955,186,168,36,L"PROCURAR");
+    g_dlc_list = CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",
+                  WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|
+                  LBS_NOTIFY|LBS_NOINTEGRALHEIGHT,
+                  300,300,640,212,g_main,(HMENU)ID_DLC_LIST,g_instance,nullptr);
+    SendMessageW(g_dlc_list,WM_SETFONT,(WPARAM)g_font,TRUE);
+    SetWindowTheme(g_dlc_list,L"DarkMode_Explorer",nullptr);
+    AddToPage(Game,g_dlc_list);
+    MakeButton(Game,ID_DLC_ADD,955,300,168,42,L"+ ADICIONAR NSP");
+    MakeButton(Game,ID_UPDATE_BROWSE,955,353,168,42,L"+ ADICIONAR PASTA");
+    MakeButton(Game,ID_DLC_REMOVE,955,406,168,42,L"REMOVER");
 }
 
 void CreateGraphicsPage() {
@@ -996,39 +1005,40 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         case ID_UPDATE_BROWSE: {
-            const auto file = OpenFile(hwnd,
-                L"Update Nintendo Switch (*.nsp;*.xci)\0*.nsp;*.xci\0Todos os arquivos\0*.*\0",
-                GetText(g_update_edit));
-            if (!file.empty()) SetText(g_update_edit, file);
-            RefreshStatus();
-            return 0;
-        }
-        case ID_KEYS_BROWSE: {
-            const auto file = OpenFile(hwnd,
-                L"prod.keys\0prod.keys\0Arquivos de keys (*.keys)\0*.keys\0Todos os arquivos\0*.*\0",
-                GetText(g_keys_edit));
-            if (!file.empty()) SetText(g_keys_edit, file);
-            RefreshStatus();
+            const auto folder=OpenPackageFolder(hwnd);
+            if (!folder.empty() && std::find_if(
+                g_extra_folders.begin(),g_extra_folders.end(),
+                [&](const std::wstring& p){ return Fold(p)==Fold(folder); })
+                ==g_extra_folders.end()) {
+                g_extra_folders.push_back(folder);
+                SaveSettings();
+                RefreshStatus();
+            }
             return 0;
         }
         case ID_DLC_ADD: {
-            const auto file = OpenFile(hwnd,
-                L"DLC Nintendo Switch (*.nsp;*.xci)\0*.nsp;*.xci\0Todos os arquivos\0*.*\0");
-            if (!file.empty() &&
-                std::find(g_dlcs.begin(), g_dlcs.end(), file) == g_dlcs.end()) {
+            const auto file=OpenFile(hwnd,
+                L"NSP / XCI\0*.nsp;*.xci\0Todos os arquivos\0*.*\0");
+            if (!file.empty() && std::find_if(g_dlcs.begin(),g_dlcs.end(),
+                   [&](const std::wstring& p){ return Fold(p)==Fold(file); })
+                   ==g_dlcs.end()) {
                 g_dlcs.push_back(file);
-                RefreshDlcList();
+                SaveSettings();
                 RefreshStatus();
             }
             return 0;
         }
         case ID_DLC_REMOVE: {
-            const int selected = static_cast<int>(SendMessageW(g_dlc_list, LB_GETCURSEL, 0, 0));
-            if (selected >= 0 && selected < static_cast<int>(g_dlcs.size())) {
-                g_dlcs.erase(g_dlcs.begin() + selected);
-                RefreshDlcList();
-                RefreshStatus();
-            }
+            const int selected=(int)SendMessageW(g_dlc_list,LB_GETCURSEL,0,0);
+            if (selected<0 || (size_t)selected>=g_visible_packages.size()) return 0;
+            auto item=g_visible_packages[(size_t)selected];
+            if (item.kind==1 && item.index<g_dlcs.size())
+                g_dlcs.erase(g_dlcs.begin()+item.index);
+            else if (item.kind==2 && item.index<g_extra_folders.size())
+                g_extra_folders.erase(g_extra_folders.begin()+item.index);
+            else return 0; // files from the primary directory are not removable
+            SaveSettings();
+            RefreshStatus();
             return 0;
         }
         case ID_OPEN_USER:
@@ -1086,7 +1096,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
     case WM_TIMER:
         if (g_importing.load()) {
-            SetText(g_status,L"Preparando para jogar...");
+            g_status_text=L"Preparando arquivos...";
+            RECT r{300,529,1125,600};
+            InvalidateRect(hwnd,&r,FALSE);
         }
         return 0;
     case kGameExitedMessage: {
@@ -1102,7 +1114,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 message += L"\n\n0xC0000005: access violation no runtime/driver.";
             }
             message += L"\n\nAbra a aba GERAL > ABRIR LOGS para o diagnóstico.";
-            MessageBoxW(hwnd, message.c_str(), L"Scarlet PC — jogo encerrado", MB_OK | MB_ICONERROR);
+            MessageBoxW(hwnd, message.c_str(), L"Scarlet — jogo encerrado", MB_OK | MB_ICONERROR);
         }
         return 0;
     }
