@@ -5,7 +5,8 @@ param(
     [string]$BuildId = 'eb6deb908752b9c6',
     [switch]$SkipImporter,
     [switch]$SkipRuntime,
-    [string]$IconPath = ''
+    [string]$IconPath = '',
+    [string]$BackgroundPath = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -203,10 +204,15 @@ $candidates = @(
     (Join-Path (Join-Path $repo 'launcher\assets') $imageName),
     (Join-Path $env:USERPROFILE "Downloads\$imageName"),
     (Join-Path $env:USERPROFILE "Pictures\$imageName"),
-    (Join-Path $env:USERPROFILE "Desktop\$imageName")
+    (Join-Path $env:USERPROFILE "Desktop\$imageName"),
+    (Join-Path 'D:\Pokemon Scarlet' $imageName)
 )
 $artwork = $null
+if ($BackgroundPath) {
+    $artwork = (Resolve-Path -LiteralPath $BackgroundPath -ErrorAction Stop).Path
+}
 foreach ($candidate in $candidates) {
+    if ($artwork) { break }
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
         $artwork = (Resolve-Path -LiteralPath $candidate).Path
         break
@@ -216,7 +222,7 @@ if (!$artwork) {
     foreach ($folder in @('Downloads', 'Pictures', 'Desktop')) {
         $rootFolder = Join-Path $env:USERPROFILE $folder
         if (!(Test-Path -LiteralPath $rootFolder)) { continue }
-        $match = Get-ChildItem -LiteralPath $rootFolder -Filter $imageName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        $match = Get-ChildItem -LiteralPath $rootFolder -Filter 'Pokemon-Scarlet-Violet-Trailer*.jpg' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($match) { $artwork = $match.FullName; break }
     }
 }
