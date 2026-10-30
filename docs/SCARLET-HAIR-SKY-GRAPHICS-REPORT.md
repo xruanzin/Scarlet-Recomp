@@ -258,3 +258,60 @@ This test applies two independent, *fingerprint-scoped* experiments to
 different shaders in the same isolated run. If one improves and the
 other doesn't, A/B them separately before enabling either by default.
 Neither is a verified permanent fix. Do not change the functional branch.
+
+## 12. Hair visually confirmed; sky 3D memory provenance (user test follow-up)
+
+User reported `-HairMode albedo` fixes the observed hair colour. This is visual
+confirmation in their scene, not proof that it is pixel-perfect in all scenes.
+**Do not replace or delete this opt-in hair mode while diagnosing sky.**
+
+Actual captured sky sampler `[skyaudit]` for FS `9543b220d1d35f7b`,
+fragment t0, was `min_filter=3`, `mag_filter=1`, wrap `7/7/7`;
+`runtime/nvn/vulkan/textures.c` maps those to linear filter for both min
+and mag. Therefore `-Sky3DFilter linear` was equivalent to the original guest
+sampling and is not evidence of a fix. The severe horizontal dark bands in
+`pass_017` are much larger than the 10-/11-bit quantization at the end of
+the GLSL, so removing the final `floor()` blindly is not supported.
+
+A separate candidate root cause is the default Tegra 3D GOB block depth:
+`runtime/nvn/tegra.c` currently sets `block_depth_log2=5` (32 stacked
+slices) for 32x128x32. Tegra descriptors can represent different Z block
+depths, so an incorrect assumption might shuffle data among 3D slices.
+**Not yet proved.** The new opt-in `-SkyVolumeDepth baseline|0|1|2|3|4|5`
+substitutes the deswizzle block depth only for
+3D `32x128x32` format `0x29`, not for any hair or other textures.
+The default baseline remains untouched. A single experiment with
+`-SkyVolumeDump` saves the raw guest-tiled 1MiB input and the resulting
+RGBA16F linear volume for offline inspection. No F9 or full frame dumps needed.
+
+IMPORTANT: the volumetric texture could be **GPU-generated** instead of
+CPU-uploaded. The focused `[scarlet-sky] volume binding` log now records
+`gpu_owned` and `uploaded`. If `gpu_owned=1` and no raw file is
+produced, the CPU deswizzle experiment cannot affect it; next inspect
+GPU rendering/compute writes to the volume, not the Tegra upload path.
+
+### Local validation (Windows 11)
+
+After `git fetch` / `git merge --ff-only FETCH_HEAD` on this diagnostic
+branch and an incremental `scarlet.exe` build:
+
+~~~powershell
+# Preserve the hair improvement while probing ONLY the sky volume:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo -SkyVolumeDepth 0 -SkyVolumeDump
+
+# The run path is printed by graphics_verify.ps1. When the game closes:
+$run = Get-ChildItem '.\build\scarlet-graphics-runs' -Directory |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$focus = Join-Path $run.FullName 'userdata\build\scarlet-focus'
+Select-String (Join-Path $run.FullName 'stderr.log') -Pattern '\[scarlet-sky\]'
+if (Test-Path (Join-Path $focus 'sky_volume_tiled_rgba16f_32x128x32.bin')) {
+  python '.\tools\scarlet\analyze_sky_volume.py' (Join-Path $focus 'sky_volume_tiled_rgba16f_32x128x32.bin') --png (Join-Path $focus 'sky_volume_layouts.png')
+}
+~~~
+
+Keep F10 screenshots at same camera for visually comparing with the
+baseline. The offline analyzer compares block-depth `0..5` numerically
+and creates one contact sheet; smoother scores are **diagnostic clues,
+not proof**, and should never automatically select a production fix.
+If depth 0 corrupts the sky, revert with `-SkyVolumeDepth baseline`;
+the original shader and hair-albedo mode remain unchanged.
