@@ -519,7 +519,8 @@ void RefreshDlcList() {
         if (pos>=0) g_visible_packages.push_back({label,1,i});
     }
     for (size_t i=0;i<g_extra_folders.size();++i) {
-        auto label=L"  + Pasta: "+fs::path(g_extra_folders[i]).filename().wstring();
+        auto label=std::wstring(Tr(L"  + Pasta: ",L"  + Folder: ",
+            L"  + Carpeta: ",L"  + Dossier : "))+fs::path(g_extra_folders[i]).filename().wstring();
         LRESULT pos=SendMessageW(g_dlc_list,LB_ADDSTRING,0,(LPARAM)label.c_str());
         if (pos>=0) g_visible_packages.push_back({label,2,i});
     }
@@ -799,7 +800,7 @@ static bool ImportPackages(const fs::path& folder, const fs::path& userKeys,
     if (!RunProcess(importer,args,games / L"import.log",&code) || code!=0 ||
         !fs::exists(stage / L"romfs.bin") ||
         !fs::exists(stage / L"exefs" / L"main")) {
-        *error=L"Falha ao importar. Consulte scarlet-games\\import.log.";
+        *error=L"Falha ao importar. Use ABRIR LOGS (import.log).";
         return false;
     }
     {
@@ -835,12 +836,14 @@ static void SetNativeFpsEnvironment() {
 
 static void StartNativeGame() {
     if (!Installed()) {
-        MessageBoxW(g_main,L"Jogo não preparado.",kTitle,MB_OK|MB_ICONWARNING);
+        MessageBoxW(g_main,Tr(L"Jogo não preparado.",L"Game not prepared.",
+            L"Juego no preparado.",L"Jeu non préparé."),kTitle,MB_OK|MB_ICONWARNING);
         return;
     }
     const fs::path runtime=g_exe_dir / L"scarlet.exe";
     if (!FileExists(runtime.wstring())) {
-        MessageBoxW(g_main,L"scarlet.exe não encontrado.",kTitle,MB_OK|MB_ICONERROR);
+        MessageBoxW(g_main,Tr(L"scarlet.exe não encontrado.",L"scarlet.exe not found.",
+            L"scarlet.exe no encontrado.",L"scarlet.exe introuvable."),kTitle,MB_OK|MB_ICONERROR);
         return;
     }
     // Catch loader failures before starting the game: those produce no runtime logs.
@@ -906,7 +909,8 @@ static void StartNativeGame() {
     LauncherLog("Game process started");
     CloseHandle(pi.hThread);
     AllowSetForegroundWindow(pi.dwProcessId);
-    SetWindowTextW(g_main,L"Scarlet — jogo em execução");
+    SetWindowTextW(g_main,Tr(L"Scarlet — jogo em execução",
+        L"Scarlet — running",L"Scarlet — en ejecución",L"Scarlet — en cours"));
     ShowWindow(g_main,SW_MINIMIZE);
     auto* context=new GameWaitContext{pi.hProcess,g_main};
     HANDLE waiter=CreateThread(nullptr,0,WaitForGameProcess,context,0,nullptr);
@@ -919,10 +923,24 @@ void LaunchGame() {
     const fs::path folder=GetText(g_game_edit);
     auto packages=PackageFiles(folder);
     if (packages.empty()) {
-        MessageBoxW(g_main,L"Selecione a pasta com os NSP/XCI.",kTitle,MB_OK|MB_ICONWARNING);
+        MessageBoxW(g_main,Tr(L"Selecione a pasta com os NSP/XCI.",
+            L"Select the folder containing NSP/XCI files.",
+            L"Seleccione la carpeta con los NSP/XCI.",
+            L"Sélectionnez le dossier contenant les NSP/XCI."),kTitle,MB_OK|MB_ICONWARNING);
         return;
     }
     if (InstallMatches(packages)) {StartNativeGame(); return;}
+    // Archive a previous failed import log, then remove stale progress lines.
+    // Otherwise the timer could briefly display 99% from an earlier run.
+    std::error_code logec;
+    const fs::path oldImportLog=g_exe_dir / L"scarlet-games" / L"import.log";
+    if (fs::exists(oldImportLog,logec)) {
+        const fs::path archive=g_exe_dir / L"user" / L"log";
+        fs::create_directories(archive,logec);
+        if (!logec) fs::copy_file(oldImportLog,archive / L"import-previous.log",
+                                  fs::copy_options::overwrite_existing,logec);
+        fs::remove(oldImportLog,logec);
+    }
     g_import_percent=0;
     g_importing.store(true);
     LauncherLog("Import started");
