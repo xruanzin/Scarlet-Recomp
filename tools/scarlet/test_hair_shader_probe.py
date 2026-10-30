@@ -31,6 +31,11 @@ int main(int argc, char **argv) {
     c->ipa_mode = -1;
     c->omap_target = 15;
     c->reg_used[47] = 1;
+    if (mode == 3) {
+        c->uses_rscale = true;
+        c->info->ntex = 5;
+        c->info->tex[4].type = TEXTYPE_2D;
+    }
     sp(&c->body, "    r47 = 24u;\n");
     unsigned long long w = 0x3800000000000000ull |
         (0x303ull << 20) | (7ull << 16) |
@@ -79,6 +84,14 @@ class MaterialMask(unittest.TestCase):
         other, log = self.shader(1, incompatible=True)
         self.assertNotIn("if (r62 == 3u)", other)
         self.assertIn("NOT FOUND", log)
+
+    def test_albedo_chroma_mode_is_only_material_three(self):
+        shader, _ = self.shader(3)
+        self.assertIn("if (scarlet_hair) {", shader)
+        self.assertIn("texelFetch(t4,", shader)
+        self.assertIn("c0.rgb = hb * clamp(ll / lb, 0.25, 2.0);", shader)
+        incompatible, _ = self.shader(3, incompatible=True)
+        self.assertNotIn("texelFetch(t4,", incompatible)
 
     def test_isotropic_only_material_three(self):
         source, _ = self.shader(2)
