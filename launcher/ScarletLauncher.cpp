@@ -684,11 +684,12 @@ static bool RunProcess(const fs::path& exe, const std::wstring& args,
     if (exitCode) *exitCode=code;
     return true;
 }
-static bool ImportPackages(const fs::path& folder, std::wstring* error) {
+static bool ImportPackages(const fs::path& folder, const fs::path& userKeys,
+                           const fs::path& userTitleKeys, std::wstring* error) {
     auto packages = PackageFiles(folder);
     if (packages.empty()) { *error=L"Nenhum NSP ou XCI encontrado."; return false; }
-    fs::path keys=FindKeys(folder,L"prod.keys");
-    if (keys.empty()) { *error=L"prod.keys não encontrado."; return false; }
+    fs::path keys=userKeys.empty()?FindKeys(folder,L"prod.keys"):userKeys;
+    if (!fs::is_regular_file(keys)) { *error=L"prod.keys não encontrado."; return false; }
     fs::path importer=g_exe_dir / L"scarletimport" / L"scarletimport.exe";
     if (!FileExists(importer.wstring())) { *error=L"scarletimport.exe não encontrado."; return false; }
     if (InstallMatches(packages)) return true;
@@ -716,7 +717,10 @@ static bool ImportPackages(const fs::path& folder, std::wstring* error) {
         for (const auto& path:packages) out << Utf8(path.wstring()) << "\n";
         if (!out) { *error=L"Falha ao salvar lista de pacotes."; return false; }
     }
-    fs::path title=FindKeys(folder,L"title.keys");
+    fs::path title=userTitleKeys.empty()?FindKeys(folder,L"title.keys"):userTitleKeys;
+    if (!userTitleKeys.empty() && !fs::is_regular_file(title)) {
+        *error=L"title.keys não encontrado."; return false;
+    }
     std::wstring args;
     if (!title.empty()) args=L"--title-keys " + QuoteArg(title.wstring()) + L" ";
     args+=QuoteArg(keys.wstring()) + L" " + QuoteArg(stage.wstring()) +
@@ -742,15 +746,23 @@ static bool ImportPackages(const fs::path& folder, std::wstring* error) {
     if (ec) { *error=L"Falha ao ativar arquivos importados."; return false; }
     return Installed();
 }
-struct ImportJob { fs::path directory; HWND window; };
+struct ImportJob { fs::path directory, keys, titleKeys; HWND window; };
 static DWORD WINAPI ImportWorker(void* raw) {
     std::unique_ptr<ImportJob> job((ImportJob*)raw);
     std::wstring error;
-    const bool ok=ImportPackages(job->directory,&error);
+    const bool ok=ImportPackages(job->directory,job->keys,job->titleKeys,&error);
     g_import_error=std::move(error);
     PostMessageW(job->window,kImportFinishedMessage,ok?1:0,0);
     return 0;
 }
+static void SetNativeFpsEnvironment() {
+    const int selected=std::clamp(ComboSelection(g_fps),0,3);
+    const int target=kScarletNativeFpsValues[(size_t)selected];
+    const std::wstring fps=std::to_wstring(target);
+    SetEnvironmentVariableW(L"SCARLET_TARGET_FPS",fps.c_str());
+    SetEnvironmentVariableW(L"SCARLET_FPS60",target>=60?L"1":L"0");
+}
+
 static void StartNativeGame() {
     if (!Installed()) {
         MessageBoxW(g_main,L"Jogo não preparado.",kTitle,MB_OK|MB_ICONWARNING);
@@ -761,6 +773,7 @@ static void StartNativeGame() {
         MessageBoxW(g_main,L"scarlet.exe não encontrado.",kTitle,MB_OK|MB_ICONERROR);
         return;
     }
+    SetNativeFpsEnvironment();
     std::wstring cmd=QuoteArg(runtime.wstring()) + L" --play " + QuoteArg(InstalledRoot().wstring());
     std::vector<wchar_t> args(cmd.begin(),cmd.end());args.push_back(L'\0');
     STARTUPINFOW si{};si.cb=sizeof si;
@@ -791,7 +804,8 @@ void LaunchGame() {
     if (InstallMatches(packages)) {StartNativeGame(); return;}
     g_importing.store(true);
     RefreshStatus();
-    auto* job=new ImportJob{folder,g_main};
+    auto* job=new ImportJob{folder,GetText(g_keys_edit),
+                            GetText(g_title_keys_edit),g_main};
     HANDLE thread=CreateThread(nullptr,0,ImportWorker,job,0,nullptr);
     if (thread) CloseHandle(thread);
     else {delete job;g_importing.store(false);MessageBoxW(g_main,L"Falha ao iniciar importação.",kTitle,MB_OK|MB_ICONERROR);}
