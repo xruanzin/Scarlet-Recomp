@@ -18,6 +18,23 @@ static const char *const scarlet_root = "scarlet-games/active";
 static const char *const scarlet_stage = "scarlet-games/.installing";
 static const char *const scarlet_backup = "scarlet-games/previous";
 static bool scarlet_ui_play;
+static bool scarlet_60;
+static void scarlet_load_fps_choice() {
+    std::ifstream f("scarlet-games/native60.txt");
+    char c = 0;
+    if (f.get(c)) scarlet_60 = c == '1';
+    else scarlet_60 = getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1");
+}
+static void scarlet_save_fps_choice() {
+    SDL_CreateDirectory("scarlet-games");
+    std::ofstream f("scarlet-games/native60.txt",std::ios::trunc);
+    if (f) f << (scarlet_60 ? "1\n" : "0\n");
+#ifdef _WIN32
+    _putenv_s("SCARLET_FPS60",scarlet_60 ? "1" : "0");
+#else
+    setenv("SCARLET_FPS60",scarlet_60 ? "1" : "0",1);
+#endif
+}
 
 static bool scarlet_main_ok(const std::string &dir) {
     std::string path = dir + "/exefs/main";
@@ -156,6 +173,7 @@ extern "C" const char *scarlet_launcher_game_root(void) { return scarlet_root; }
 
 static void scarlet_launch_run() {
     scarlet_load_picks();
+    scarlet_load_fps_choice();
     scarlet_ui_play=false;
     ui_window_init();
     SDL_Window *win=ui_window();
@@ -224,11 +242,18 @@ static void scarlet_launch_run() {
         }
         ImGui::EndDisabled();
         ImGui::SeparatorText("Jogar");
+        ImGui::Checkbox("60 FPS nativos (experimental)", &scarlet_60);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Clock Scarlet 4.0.0 + Vulkan 1 vsync. Valide velocidade da física, animações e batalhas.\n"
+                              "Não garante 60 FPS quando CPU/GPU não sustentam 16,7 ms.");
         bool game_lib=installed && gamelib_present(scarlet_root);
         if (installed && !game_lib)
             ImGui::TextDisabled("AOT nao corresponde a este ExeFS: mantenha lasgame.dll e lasgame.dll.id da build Scarlet 4.0.0.");
         ImGui::BeginDisabled(state==1 || !game_lib);
-        if (ImGui::Button("JOGAR",ImVec2(-FLT_MIN,48))) scarlet_ui_play=true;
+        if (ImGui::Button("JOGAR",ImVec2(-FLT_MIN,48))) {
+            scarlet_save_fps_choice();
+            scarlet_ui_play=true;
+        }
         ImGui::EndDisabled();
         ImGui::TextDisabled("Jogo e chaves nao incluidos. Os saves e cache ficam no diretorio de dados.");
         ImGui::End();
