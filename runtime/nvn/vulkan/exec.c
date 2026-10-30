@@ -5664,7 +5664,40 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
     }
     if (h && st.spool && tsc < (uint32_t)st.spool->count) {
         NvnSamplerDesc *sd = &((NvnSamplerDesc *)st.spool->entries)[tsc];
-        smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);  // (integer texels: unfiltered)
+        // Scarlet sky provenance: the 480x270 sky pass samples a 32x128x32
+        // volume through t0, then it is composed at 1920x1080. A/B only the
+        // volume sampler's spatial interpolation; no shader or global filtering
+        // changes. "linear" means linear texel/volume filtering with the SAME
+        // mip selection class (nearest mip), "nearest" forces point sampling.
+        // Determine if horizontal bands come from 3D slice filtering before
+        // proposing any game-wide change. Disabled unless opted in.
+        static int sky_3d_filter = -1;
+        if (sky_3d_filter < 0) {
+            const char *e = ENV("SCARLET_SKY_3D_FILTER");
+            sky_3d_filter = e && strcmp(e, "linear") == 0 ? 1 :
+                            e && strcmp(e, "nearest") == 0 ? 2 : 0;
+        }
+        if (sky_3d_filter && stage == STAGE_FRAGMENT && i == 0 &&
+            st_->type == TEXTYPE_3D && !st_->shadow && !st_->stencil &&
+            g_cur_fs_hash == 0x9543b220d1d35f7bull) {
+            NvnSamplerDesc trial = *sd; // do not modify guest descriptor or cached state
+            trial.mag_filter = sky_3d_filter == 1 ? 1 : 0;
+            trial.min_filter = sky_3d_filter == 1 ? 3 : 2;
+            trial.backend = NULL; // vk_sampler creates/caches its own matching variant
+            trial.backend_gen = 0;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-sky] 3D t0 exact FS %016llx filter %s (guest min %u mag %u, wrap %u/%u/%u)\n",
+                    (unsigned long long)g_cur_fs_hash,
+                    sky_3d_filter == 1 ? "linear" : "nearest",
+                    sd->min_filter, sd->mag_filter,
+                    sd->wrap[0], sd->wrap[1], sd->wrap[2]);
+            }
+            smp = vk_sampler(&trial);
+        } else {
+            smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);
+        }
     }
     {   // (debug) LARECOMP_CS_DUMMY_TEX=<compute code hex>: that compute shader samples 1x1 black textures
         static uint64_t dummy_cs = ~0ull;
