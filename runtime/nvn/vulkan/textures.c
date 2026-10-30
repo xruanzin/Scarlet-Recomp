@@ -1162,8 +1162,8 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
                 static bool dumped;
                 if (sky_dump && !dumped) {
                     dumped = true;
-                    mkdir("build", 0755);
-                    mkdir("build/scarlet-focus", 0755);
+                    SDL_CreateDirectory("build");
+                    SDL_CreateDirectory("build/scarlet-focus");
                     const char *name = "build/scarlet-focus/sky_volume_linear_rgba16f_32x128x32.bin";
                     FILE *fp = fopen(name, "wb");
                     size_t nbytes = (size_t)row * l.hb * l.d;
