@@ -1390,6 +1390,7 @@ static uint32_t tex_wh[2][64][2];
 static VkFormat pass_color[8], pass_depth, pass_stencil;
 static uint32_t pass_ncolor, pass_samples = 1, pass_w, pass_h, pass_layers = 1;
 static int debug_pass_no;
+static RtState debug_pass_rt;  // attachments actually begun; st.rt may already name the next pass
 // (draw_indirect) the draw being made reads its parameters on the GPU: offset in the guest memory window's buffer
 static bool g_ind_gpu;
 static VkDeviceSize g_ind_off;
@@ -1456,7 +1457,7 @@ static void vk_end_pass_at(int line) {
     if (prof && line < 4096) prof_end_line[line]++;
     rec_CmdEndRendering(vk_cmd());
     in_pass = false;
-    if (g_debug_frame && st.rt.ncolor && st.rt.color[0] && st.rt.color[0]->backend) {
+    if (g_debug_frame && debug_pass_rt.ncolor && debug_pass_rt.color[0] && debug_pass_rt.color[0]->backend) {
         char path[256];
         static uint64_t debug_pass_frame = ~0ull;
         static int multi = -1;
@@ -1464,14 +1465,21 @@ static void vk_end_pass_at(int line) {
         if (multi && renderer_present_count() != debug_pass_frame) { debug_pass_frame = renderer_present_count(); debug_pass_no = 0; }
         if (multi) snprintf(path, sizeof path, "build/pass_%llu_%03d.png", (unsigned long long)debug_pass_frame, debug_pass_no++);
         else snprintf(path, sizeof path, "build/pass_%03d.png", debug_pass_no++);
-        renderer_save_texture_tex(st.rt.color[0]->backend, path);
-        for (int ci = 1; ci < st.rt.ncolor; ci++) {  // (multiple render targets: the others as _c<i>)
-            if (!st.rt.color[ci] || !st.rt.color[ci]->backend) continue;
+        LOG("[pass] %s end-line %d colors %d", path, line, debug_pass_rt.ncolor);
+        for (int ci = 0; ci < debug_pass_rt.ncolor; ci++) {
+            NvnTexture *t = debug_pass_rt.color[ci];
+            if (t) LOG(" c%d=%p/f%#x", ci, (void *)t, t->format);
+        }
+        if (debug_pass_rt.depth) LOG(" depth=%p/f%#x", (void *)debug_pass_rt.depth, debug_pass_rt.depth->format);
+        LOG("\n");
+        renderer_save_texture_tex(debug_pass_rt.color[0]->backend, path);
+        for (int ci = 1; ci < debug_pass_rt.ncolor; ci++) {  // (multiple render targets: the others as _c<i>)
+            if (!debug_pass_rt.color[ci] || !debug_pass_rt.color[ci]->backend) continue;
             char cpath[300];
             snprintf(cpath, sizeof cpath, "%.*s_c%d.png", (int)strlen(path) - 4, path, ci);
-            renderer_save_texture_tex(st.rt.color[ci]->backend, cpath);
+            renderer_save_texture_tex(debug_pass_rt.color[ci]->backend, cpath);
         }
-        TexBackend *tb = st.rt.color[0]->backend;
+        TexBackend *tb = debug_pass_rt.color[0]->backend;
         if (tb->width == 1 && tb->height == 1 && tb->format == VK_FORMAT_R32G32B32A32_SFLOAT) {  // (exposure: the raw value)
             VkSpan out = vk_readback(16);
             VkBufferImageCopy c = {.bufferOffset = out.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {1, 1, 1}};
@@ -1489,7 +1497,7 @@ static void vk_end_pass_at(int line) {
             char lpath[300];
             snprintf(lpath, sizeof lpath, "%.*s_l%u.png", (int)strlen(path) - 4, path, ly);
             raw_layer = ly;
-            renderer_save_texture_tex(st.rt.color[0]->backend, lpath);
+            renderer_save_texture_tex(debug_pass_rt.color[0]->backend, lpath);
             raw_layer = 0;
         }
     }
@@ -1684,6 +1692,7 @@ static void begin_pass(void) {
         LOG(", samples %u\n", pass_samples);
     }
     rec_CmdBeginRendering(cb, &ri);
+    if (g_debug_frame) debug_pass_rt = st.rt;
     ss_forget();  // (whatever ran between the passes may have set its own state)
     in_pass = true;
     vp_sx = pass_sx; vp_sy = pass_sy; vp_ox = 0; vp_oy = 0;
@@ -2858,7 +2867,7 @@ static void set_vertex_input(VkCommandBuffer cb, const VtxLayout *l) {
 
 // ================================================================== feedback snapshots (renderer.m resolve_feedback)
 static NvnTexture *feedback_tex[4];
-static VkImageView feedback_view[4];
+static TexBackend *feedback_image[4];
 static int nfeedback;
 static uint64_t g_cur_fs_hash;
 static NvnTexture *snap_tex[8];
@@ -2903,7 +2912,8 @@ static TexBackend *snapshot_image(NvnTexture *t, TexBackend *src) {
         d->mem = VK_NULL_HANDLE;
     }
     if (!d->image) {
-        VkImageCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = src->format,
+        VkImageCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT,
+                                .imageType = VK_IMAGE_TYPE_2D, .format = src->format,
                                 .extent = {src->width, src->height, 1}, .mipLevels = 1, .arrayLayers = 1,
                                 .samples = (VkSampleCountFlagBits)src->samples, .tiling = VK_IMAGE_TILING_OPTIMAL,
                                 .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
@@ -3150,6 +3160,8 @@ uint32_t nvn_window_origin(void);
 // a crash in live_remove when the game freed textures walking into a new area of the city.
 void vk_exec_texture_destroyed(NvnTexture *t) {
     bool rt = false;
+    for (int i = 0; i < 8; i++) if (debug_pass_rt.color[i] == t) debug_pass_rt.color[i] = NULL;
+    if (debug_pass_rt.depth == t) debug_pass_rt.depth = NULL;
     for (int i = 0; i < 8; i++) if (st.rt.color[i] == t) st.rt.color[i] = NULL, rt = true;
     if (st.rt.depth == t) st.rt.depth = NULL, rt = true;
     if (rt) st.rt_dirty = true;  // (an open pass keeps its views: they are destroyed once the GPU is done)
@@ -3245,11 +3257,9 @@ static void resolve_feedback(Prog *pr) {
             TexBackend *src = vk_tex(t, true);
             Snap *existing = NULL;
             for (int k = 0; k < nsnaps; k++) if (snaps[k].key == t && snaps[k].copy.image) existing = &snaps[k];
-            VkImageAspectFlags sa = src->aspect & VK_IMAGE_ASPECT_DEPTH_BIT ? VK_IMAGE_ASPECT_DEPTH_BIT : src->aspect;
-            static const VkComponentMapping id = {0};
             if (!nosnap && si >= 0 && (snap_ok[si] || self_write) && existing) {
                 feedback_tex[nfeedback] = t;
-                feedback_view[nfeedback++] = vk_image_view(&existing->copy, VK_IMAGE_VIEW_TYPE_2D, src->format, 0, 1, 0, 1, id, sa);
+                feedback_image[nfeedback++] = &existing->copy;
                 continue;
             }
             stat_feedback_copies++;
@@ -3272,7 +3282,7 @@ static void resolve_feedback(Prog *pr) {
                 cb = vk_cmd();
             }
             feedback_tex[nfeedback] = t;
-            feedback_view[nfeedback++] = vk_image_view(dst, VK_IMAGE_VIEW_TYPE_2D, src->format, 0, 1, 0, 1, id, sa);
+            feedback_image[nfeedback++] = dst;
             if (si < 0) { static int rr; si = rr++ & 7; snap_tex[si] = t; }
             snap_ok[si] = true;
             st.rt_dirty = true;
@@ -5505,8 +5515,7 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
             }
             for (int k = 0; k < nfeedback; k++)
                 if (e->tex == feedback_tex[k] && (st_->type == TEXTYPE_2D || st_->type == TEXTYPE_2D_ARRAY)) {
-                    view = feedback_view[k];
-                    if (st_->type == TEXTYPE_2D_ARRAY) view = vk_dummy_view(TEXTYPE_2D_ARRAY);  // (2D snapshot as array: rare)
+                    view = vk_sample_view(e->tex, feedback_image[k], &e->view, e->has_view, st_->type);
                 }
         } else if (e->dead_format) {
             nvn_dead_slot_sampled(e, tic);
