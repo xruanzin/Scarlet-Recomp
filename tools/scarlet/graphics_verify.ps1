@@ -7,6 +7,9 @@ param(
     [switch]$DumpFocusShaders,
     [ValidateSet('baseline','linear','nearest')]
     [string]$Sky3DFilter = 'baseline',
+    [ValidateSet('baseline','0','1','2','3','4','5')]
+    [string]$SkyVolumeDepth = 'baseline',
+    [switch]$SkyVolumeDump,
     [ValidateSet('baseline','mask','isotropic','albedo')]
     [string]$HairMode = 'baseline',
     [ValidateRange(0,1000000)]
@@ -51,6 +54,8 @@ $env:SCARLET_EARLY_TLS_PROBE = '1'
 $env:SCARLET_BOOTSTRAP_ALLOCATOR = '1'
 if ($DumpFocusShaders) { $env:SCARLET_DUMP_FOCUS_SHADERS = '1' }
 if ($Sky3DFilter -ne 'baseline') { $env:SCARLET_SKY_3D_FILTER = $Sky3DFilter }
+if ($SkyVolumeDepth -ne 'baseline') { $env:SCARLET_SKY_VOLUME_DEPTH = $SkyVolumeDepth }
+if ($SkyVolumeDump) { $env:SCARLET_SKY_VOLUME_DUMP = '1' }
 if ($HairMode -ne 'baseline') { $env:SCARLET_HAIR_MODE = $HairMode }
 # Opt-in sky A/B. Variables are scoped to this child PowerShell process and its isolated data.
 if ($SkyAudit) {
@@ -69,8 +74,8 @@ switch ($SkyMode) {
     'fresh-feedback' { $env:LARECOMP_NO_SNAPSHOT_REUSE = '1' }
     'lod1'          { $env:LARECOMP_LOD_MIN = '1' }
 }
-if ($SkyAudit -or $SkyMode -ne 'baseline' -or $GraphicsAudit -or $DumpFocusShaders -or $HairMode -ne 'baseline' -or $Sky3DFilter -ne 'baseline') {
-    Write-Host "Graphics investigation: mode=$SkyMode; sky trace=$SkyAudit; draw trace=$GraphicsAudit; sky frame=$SkyFromFrame; draw frame=$GraphicsFromFrame; shader=$GraphicsShaderHash; hair=$HairMode; sky 3D filter=$Sky3DFilter; focus GLSL=$DumpFocusShaders"
+if ($SkyAudit -or $SkyMode -ne 'baseline' -or $GraphicsAudit -or $DumpFocusShaders -or $HairMode -ne 'baseline' -or $Sky3DFilter -ne 'baseline' -or $SkyVolumeDepth -ne 'baseline' -or $SkyVolumeDump) {
+    Write-Host "Graphics investigation: mode=$SkyMode; sky trace=$SkyAudit; draw trace=$GraphicsAudit; sky frame=$SkyFromFrame; draw frame=$GraphicsFromFrame; shader=$GraphicsShaderHash; hair=$HairMode; sky 3D filter=$Sky3DFilter; sky volume depth=$SkyVolumeDepth; volume dump=$SkyVolumeDump; focus GLSL=$DumpFocusShaders"
 }
 $log = Join-Path $run 'stderr.log'
 Write-Host "Isolated test: $run"
