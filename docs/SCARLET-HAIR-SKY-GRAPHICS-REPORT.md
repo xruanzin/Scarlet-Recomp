@@ -115,3 +115,75 @@ Overlays das três capturas: 30 FPS; GPU 21–26%, CPU 32–43%, RAM aproximadam
 | Cabelo | **NÃO CORRIGIDO** | Falta referência da cor escolhida e shader/material isolado. |
 | Céu | **NÃO CORRIGIDO** | Origem/pass ainda não identificados; nenhum workaround aplicado. |
 | Instrumentação | **IMPLEMENTADA, validação pendente** | Código publicado em branch separada; sem compilação ou GPU nesta sessão. |
+
+
+## 10. Evidência F9 real e experimentos isolados (30/10/2026)
+
+Este suplemento substitui a antiga pendência de identificar os shaders. As capturas fornecidas
+pelo desenvolvedor ocorreram nos render frames **9231** e **14241**, com `[debug] F9 armed`,
+`[debug] capturing render frame`, `[pass]` e `[vk] saved`.
+O pacote analisado possui 249 PNGs; não se adiciona nenhum PNG, log completo,
+shader gerado ou dado de jogo ao repositório.
+
+**Identificação por draw trace e saída F9:**
+
+| Fase | Fragment fingerprint | Prova |
+|---|---|---|
+| Deferred lighting / cabelo | `aa68a5939321c84a` | FS de 14 texturas com destino em RT 1920x1080; presente também no scarlet_pc |
+| Céu intermediário | `9543b220d1d35f7b` | FS de 3 texturas com destino 480x270; `pass_017`/`pass_123` exibem degraus horizontais |
+| Composição posterior | `2076c99beec00951` | Consome RT 480x270 como entrada (slot 3), desenha em 1920x1080 |
+
+O primeiro input do shader `9543...` é uma textura **3D 32x128x32**,
+não uma textura 2D 32x128; os outros dois são 2D 256x64 e 256x256.
+É necessário conferir coordenadas de amostragem, slices e a aritmética no shader
+traduzido antes de declarar a causa. O render target do céu é FP32 e o problema
+precede a composição; um dither genérico de 8 bits **não é** correção justificada.
+
+No repositório antigo, `docs/SCARLET-HAIR-CAPTURE.md` relata que a primeira
+tentativa isotrópica não eliminou o defeito azul/roxo. Portanto a nova variante
+é **uma repetição experimental do caminho anterior**, não correção confirmada.
+
+### Nova instrumentação: source / material A/B
+
+Esta branch preserva o comportamento baseline por padrão.
+O material 3 só é marcado se o programa exato `aa68...` contiver a
+instrução unsigned BFE conhecida `r62 = bfe_u(r47, 0x00000303u)`.
+Qualquer outra assinatura exibe `[scarlet-hair] ... NOT FOUND` e não pinta pixels.
+
+- `-HairMode baseline`: nenhum shader alterado.
+- `-HairMode mask`: marca apenas os fragmentos que executarem o branch de material 3,
+  em magenta. **Serve para provar a máscara, não como render final.**
+- `-HairMode isotropic`: reaplica o redirecionamento simplificado do antigo experimento
+  ao material 3; pode produzir alteração visual errada e só serve para comparação.
+- `-DumpFocusShaders`: grava GLSL traduzido **somente** dos fingerprints de cabelo,
+  céu e compositor em `userdata/build/scarlet-focus/fs_<hash>_<mode>.frag` de cada run.
+
+Os dois modos experimentais são isolados na identidade de programa e cache
+(`ShaderKey.scarlet_hair_mode` espelhado na vertex key), sem tocar na AOT e
+sem alterar shaders de outros materiais. O código de geração e os PNGs
+ficam sob a pasta de execução isolada, não em commits públicos.
+
+~~~powershell
+cd "D:\Scarlet-Recomp"
+$env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
+$env:MSYSTEM = "UCRT64"
+$build = "build/scarlet/eb6deb908752b9c6"
+make -j2 SCARLET_AOT=1 GEN=generated-scarlet/eb6deb908752b9c6 B=$build "$build/scarlet.exe"
+if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar runtime" }
+
+# Baseline: shader original e dump focado, sem precisar apertar F9
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -DumpFocusShaders
+
+# Segundo run isolado: apenas material ID 3 em magenta
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode mask -DumpFocusShaders
+
+# Opcional, somente apos avaliar mascara:
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode isotropic -DumpFocusShaders
+~~~
+
+No mesmo save, câmera e hora do jogo, use F10 para gerar um screenshot
+se precisar comparar. F9 pesado não é necessário para o export GLSL.
+Procure a última pasta em `build/scarlet-graphics-runs/<timestamp>/userdata/build/scarlet-focus`;
+para a máscara, confira `[scarlet-hair]` no `stderr.log`.
+**Limites:** estas mudanças não foram compiladas em Windows nem aprovadas
+por comparação visual no instante do commit; nenhuma correção gráfica é reivindicada.
