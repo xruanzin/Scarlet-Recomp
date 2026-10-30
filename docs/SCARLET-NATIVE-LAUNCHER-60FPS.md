@@ -14,7 +14,7 @@ Branch: feature/scarlet-launcher-packages-fps-20261030. Windows 11/Vulkan.
 
 ## One command to build
 
-Requirements: working Windows 11 MSYS2 UCRT64 clang/make/SDL3/Vulkan, existing Scarlet 4.0.0 lasgame.dll and .id, and .NET 8 SDK for the standalone importer.
+Requirements: working Windows 11 MSYS2 UCRT64 clang/make/SDL3/Vulkan and existing Scarlet 4.0.0 lasgame.dll plus .id. The build script now checks for a real .NET SDK (not merely a .NET runtime). If absent, it fetches Microsoft's official dotnet-install.ps1 and installs the .NET 8 SDK locally in D:\\Scarlet-Recomp\\build\\scarlet-tools-cache\\dotnet-sdk-8 without administrator rights. Internet access and free space on D: are required for the first install. No global .NET installation is necessary.
 
     cd D:\Scarlet-Recomp
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1
