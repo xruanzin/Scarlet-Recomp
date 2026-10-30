@@ -117,18 +117,22 @@ if (!$SkipRuntime) {
     Write-Host 'Scarlet Win32 e runtime compilados. Abra scarlet.exe sem --play.'
 }
 
-# Ship the MSYS2/UCRT64 C++ runtime beside the standalone Win32 launcher.
+# Bundle the MSYS2/UCRT64 runtime beside BOTH Scarlet executables (and AOT DLL).
 # Windows does not search C:\\msys64\\ucrt64\\bin automatically when users open
 # ScarletLauncher.exe by double-click. Walk its imported DLLs recursively so
 # transitive libgcc/libwinpthread dependencies are included too.
 # Never copy DLLs from System32 or overwrite DLLs that are not from our
 # configured UCRT64 toolchain.
-function Install-ScarletLauncherDlls {
+function Install-ScarletRuntimeDlls {
     param([string]$ExecutableDirectory)
 
     $msysBin = 'C:\msys64\ucrt64\bin'
     $launcherExe = Join-Path $ExecutableDirectory 'ScarletLauncher.exe'
-    if (!(Test-Path -LiteralPath $launcherExe)) { return }
+    $gameExe = Join-Path $ExecutableDirectory 'scarlet.exe'
+    $aotDll = Join-Path $ExecutableDirectory 'lasgame.dll'
+    if (!(Test-Path -LiteralPath $launcherExe) -or !(Test-Path -LiteralPath $gameExe)) {
+        throw 'scarlet.exe e ScarletLauncher.exe devem existir antes de distribuir dependencias.'
+    }
     if (!(Test-Path -LiteralPath $msysBin)) {
         throw "MSYS2 UCRT64 nao encontrado: $msysBin"
     }
@@ -139,13 +143,18 @@ function Install-ScarletLauncherDlls {
 
     # Guaranteed essentials even when objdump is not installed.
     $imports = New-Object 'System.Collections.Generic.Queue[string]'
-    foreach ($dll in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll')) {
+    # Explicit fallbacks for the current Windows build when objdump is absent;
+    # actual binary imports (including transitive DLLs) are also scanned.
+    foreach ($dll in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll',
+                       'SDL3.dll', 'avutil-61.dll', 'avcodec-63.dll', 'avformat-63.dll')) {
         $imports.Enqueue($dll)
     }
 
     $seen = @{}  # PowerShell 5.1 case-insensitive keys
     $scan = New-Object 'System.Collections.Generic.Queue[string]'
     $scan.Enqueue($launcherExe)
+    $scan.Enqueue($gameExe)
+    if (Test-Path -LiteralPath $aotDll) { $scan.Enqueue($aotDll) }
     while ($scan.Count -gt 0) {
         $sourceExe = $scan.Dequeue()
         if (!$objdump) { continue }
@@ -168,7 +177,7 @@ function Install-ScarletLauncherDlls {
         $targetDll = Join-Path $ExecutableDirectory $dll
         if (!(Test-Path -LiteralPath $targetDll)) {
             Copy-Item -LiteralPath $sourceDll -Destination $targetDll -ErrorAction Stop
-            Write-Host "Dependencia do launcher: $dll"
+            Write-Host "Dependencia Scarlet empacotada: $dll"
         }
         if ($objdump) {
             $report = @(& $objdump.Source -p $sourceDll 2>$null)
@@ -181,15 +190,18 @@ function Install-ScarletLauncherDlls {
         }
     }
 
-    foreach ($essential in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll')) {
-        if (!(Test-Path -LiteralPath (Join-Path $ExecutableDirectory $essential))) {
-            throw "Dependencia obrigatoria do launcher nao encontrada: $essential"
-        }
+    $missing = @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll',
+                 'SDL3.dll', 'avutil-61.dll', 'avcodec-63.dll', 'avformat-63.dll') |
+        Where-Object { !(Test-Path -LiteralPath (Join-Path $ExecutableDirectory $_)) }
+    if ($missing.Count -gt 0) {
+        throw ("Faltam DLLs em ${ExecutableDirectory}: " + ($missing -join ', ') +
+               '. Instale/atualize SDL3 e FFmpeg no MSYS2 UCRT64, depois execute este script novamente.')
     }
+    Write-Host 'Dependencias do launcher e do scarlet.exe verificadas.'
 }
 
 # Running with -SkipRuntime should still repair DLLs of an already built launcher.
-Install-ScarletLauncherDlls -ExecutableDirectory $bin
+Install-ScarletRuntimeDlls -ExecutableDirectory $bin
 
 # The uploaded Scarlet/Violet wallpaper is now versioned in GitHub.
 # Copy it on EVERY build, replacing any stale old Scarlet PC image.
