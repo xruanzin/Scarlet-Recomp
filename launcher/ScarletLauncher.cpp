@@ -495,7 +495,7 @@ void RefreshStatus() {
         if (InstallMatches(packages)) g_status_text+=L"     Pronto";
     }
     RefreshDlcList();
-    RECT r{290,516,1140,610};
+    RECT r{592,607,1125,646};
     InvalidateRect(g_main,&r,FALSE);
 }
 
@@ -813,20 +813,28 @@ void LaunchGame() {
 
 
 void CreateGamePage() {
-    // All labels/status are painted by GDI+ in WM_PAINT. Never redraw
-    // transparent STATIC labels over the background (text ghosting bug).
-    g_game_edit = MakeEdit(Game,ID_GAME_EDIT,300,186,640,36);
-    MakeButton(Game,ID_GAME_BROWSE,955,186,168,36,L"PROCURAR");
-    g_dlc_list = CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",
+    // Parent WM_PAINT owns all text labels; native EDIT/LISTBOX/COMBOBOX
+    // own only their contents. No overlapping transparent STATIC controls.
+    g_game_edit=MakeEdit(Game,ID_GAME_EDIT,300,184,640,34);
+    MakeButton(Game,ID_GAME_BROWSE,955,184,168,34,L"PROCURAR");
+
+    g_dlc_list=CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",
                   WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|
                   LBS_NOTIFY|LBS_NOINTEGRALHEIGHT,
-                  300,300,640,212,g_main,(HMENU)ID_DLC_LIST,g_instance,nullptr);
+                  300,285,640,159,g_main,(HMENU)ID_DLC_LIST,g_instance,nullptr);
     SendMessageW(g_dlc_list,WM_SETFONT,(WPARAM)g_font,TRUE);
     SetWindowTheme(g_dlc_list,L"DarkMode_Explorer",nullptr);
     AddToPage(Game,g_dlc_list);
-    MakeButton(Game,ID_DLC_ADD,955,300,168,42,L"+ ADICIONAR NSP");
-    MakeButton(Game,ID_UPDATE_BROWSE,955,353,168,42,L"+ ADICIONAR PASTA");
-    MakeButton(Game,ID_DLC_REMOVE,955,406,168,42,L"REMOVER");
+    MakeButton(Game,ID_DLC_ADD,955,285,168,40,L"+ ADICIONAR NSP");
+    MakeButton(Game,ID_UPDATE_BROWSE,955,341,168,40,L"+ ADICIONAR PASTA");
+    MakeButton(Game,ID_DLC_REMOVE,955,397,168,40,L"REMOVER");
+
+    g_keys_edit=MakeEdit(Game,ID_KEYS_EDIT,300,478,640,32);
+    MakeButton(Game,ID_KEYS_BROWSE,955,478,168,32,L"PROCURAR");
+    g_title_keys_edit=MakeEdit(Game,ID_GAME_STATUS,300,537,640,32);
+    MakeButton(Game,ID_TITLE_KEYS_BROWSE,955,537,168,32,L"PROCURAR");
+
+    g_fps=MakeCombo(Game,ID_FPS,300,608,268,190,kScarletNativeFps,0);
 }
 
 void CreateGraphicsPage() {
@@ -1019,18 +1027,22 @@ void DrawBackground(HWND hwnd, HDC hdc) {
     graphics.DrawString(L"Pasta do jogo (.NSP / .XCI)", -1, &label,
                         PointF(300.0f, 153.0f), &text_brush);
     graphics.DrawString(L"PACOTES", -1, &heading,
-                        PointF(300.0f, 258.0f), &title_brush);
+                        PointF(300.0f, 247.0f), &title_brush);
+    graphics.DrawString(L"prod.keys", -1, &label,
+                        PointF(300.0f, 450.0f), &text_brush);
+    graphics.DrawString(L"title.keys (opcional)", -1, &label,
+                        PointF(300.0f, 510.0f), &text_brush);
+    graphics.DrawString(L"FPS", -1, &label,
+                        PointF(300.0f, 579.0f), &text_brush);
 
     SolidBrush status_panel(Color(255, 36, 28, 38));
-    graphics.FillRectangle(&status_panel, 300, 532, 823, 67);
+    graphics.FillRectangle(&status_panel, 592, 607, 531, 35);
     Pen status_line(Color(255, 95, 74, 62));
-    graphics.DrawRectangle(&status_line, 300, 532, 823, 67);
+    graphics.DrawRectangle(&status_line, 592, 607, 531, 35);
     if (!g_status_text.empty()) {
         graphics.DrawString(g_status_text.c_str(), -1, &status_font,
-                            PointF(314.0f, 552.0f), &text_brush);
+                            PointF(606.0f, 613.0f), &text_brush);
     }
-    graphics.DrawString(L"Atualização e DLCs detectadas automaticamente",
-                        -1, &label, PointF(300.0f, 608.0f), &muted);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1050,6 +1062,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         case ID_TAB_GENERAL: ShowPage(General); return 0;
         case ID_PLAY: LaunchGame(); return 0;
 
+        case ID_KEYS_BROWSE:
+        case ID_TITLE_KEYS_BROWSE: {
+            if (g_importing.load()) return 0;
+            const HWND target=id==ID_KEYS_BROWSE ? g_keys_edit:g_title_keys_edit;
+            const auto chosen=OpenFile(hwnd,
+                L"Arquivos de keys (*.keys;*.txt)\0*.keys;*.txt\0Todos os arquivos\0*.*\0",
+                GetText(target));
+            if (!chosen.empty()) { SetText(target,chosen); SaveSettings(); }
+            return 0;
+        }
         case ID_GAME_BROWSE: {
             if (g_importing.load()) return 0;
             auto folder=OpenPackageFolder(hwnd);
@@ -1107,9 +1129,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             break;
         }
         if (HIWORD(wparam) == EN_CHANGE && id == ID_GAME_EDIT &&
-            !g_importing.load()) {
-            RefreshStatus();
-        }
+            !g_importing.load()) RefreshStatus();
+        if (HIWORD(wparam) == CBN_SELCHANGE && id == ID_FPS) SaveSettings();
         break;
     }
 
