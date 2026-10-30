@@ -443,6 +443,12 @@ int main(int argc, char **argv) {
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern void launcher_run(const char *root);
             launcher_run(root);
+#ifdef SCARLET_AOT
+            // The standalone Scarlet launcher imports to an isolated selected
+            // game root. --play test runs still honour their explicit root.
+            extern const char *scarlet_launcher_game_root(void);
+            root = scarlet_launcher_game_root();
+#endif
         }
         boot(root);
         int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested
