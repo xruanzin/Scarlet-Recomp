@@ -530,12 +530,9 @@ int main(int argc, char **argv) {
 #endif
             extern void launcher_run(const char *root);
             launcher_run(root);
-#ifdef SCARLET_AOT
-            // The standalone Scarlet launcher imports to an isolated selected
-            // game root. --play test runs still honour their explicit root.
-            extern const char *scarlet_launcher_game_root(void);
-            root = scarlet_launcher_game_root();
-#endif
+// Scarlet's original Win32 launcher is a separate process. It starts
+// scarlet.exe with --play and an explicit extracted root; there is no
+// in-game Scarlet launcher root to query here.
         }
         boot(root);
         int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested
