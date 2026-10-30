@@ -56,6 +56,7 @@ enum ControlId : int {
     ID_UPDATE_BROWSE,
     ID_KEYS_EDIT,
     ID_KEYS_BROWSE,
+    ID_TITLE_KEYS_BROWSE,
     ID_DLC_LIST,
     ID_DLC_ADD,
     ID_DLC_REMOVE,
@@ -106,6 +107,10 @@ constexpr std::array<const wchar_t*, 3> kDisplayModes{{
 constexpr std::array<const wchar_t*, 5> kFpsModes{{
     L"30 FPS", L"60 FPS", L"120 FPS", L"144 FPS", L"Ilimitado"
 }};
+constexpr std::array<const wchar_t*, 4> kScarletNativeFps{{
+    L"30 FPS", L"60 FPS", L"120 FPS", L"240 FPS"
+}};
+constexpr std::array<int, 4> kScarletNativeFpsValues{{30, 60, 120, 240}};
 
 constexpr std::array<const wchar_t*, 6> kUpscalers{{
     L"Nativo", L"DLSS", L"FSR 1", L"FSR 3", L"FSR 3.1", L"FSR 4"
@@ -139,6 +144,7 @@ std::array<std::vector<HWND>, 4> g_page_controls;
 HWND g_game_edit{};
 HWND g_update_edit{};
 HWND g_keys_edit{};
+HWND g_title_keys_edit{};
 HWND g_dlc_list{};
 HWND g_status{};
 
@@ -521,6 +527,10 @@ void SaveSettings() {
     std::error_code ec;
     fs::create_directories(g_ini_path.parent_path(),ec);
     IniWrite(L"Game",L"directory",GetText(g_game_edit));
+    IniWrite(L"Game",L"prod_keys",GetText(g_keys_edit));
+    IniWrite(L"Game",L"title_keys",GetText(g_title_keys_edit));
+    IniWrite(L"Game",L"target_fps",std::to_wstring(kScarletNativeFpsValues[
+        std::clamp(ComboSelection(g_fps),0,3)]));
     std::ofstream f(g_ini_path.parent_path()/L"scarlet_extra_packages.txt",
                     std::ios::binary|std::ios::trunc);
     for (const auto& p:g_dlcs) f << "F" << Utf8(p) << "\n";
@@ -550,6 +560,12 @@ void LoadSettings() {
         if (item[0]=='D') g_extra_folders.push_back(Utf8ToWide(item.substr(1)));
     }
     SetText(g_game_edit,folder);
+    SetText(g_keys_edit,IniRead(L"Game",L"prod_keys"));
+    SetText(g_title_keys_edit,IniRead(L"Game",L"title_keys"));
+    const int target=GetPrivateProfileIntW(L"Game",L"target_fps",30,g_ini_path.c_str());
+    auto selected=std::find(kScarletNativeFpsValues.begin(),kScarletNativeFpsValues.end(),target);
+    SetComboSelection(g_fps,selected==kScarletNativeFpsValues.end()?0:
+                      (int)(selected-kScarletNativeFpsValues.begin()));
     RefreshStatus();
 }
 
