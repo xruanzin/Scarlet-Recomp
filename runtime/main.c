@@ -14,6 +14,32 @@
 #include "platform.h"
 #include "gamebuild.h"  // (gamelib_old_cpu)
 #include <stdio.h>
+#if defined(SCARLET_AOT) && defined(_WIN32)
+#include <windows.h>
+#include <wchar.h>
+// Exact Scarlet PC native Win32/GDI+ launcher lives next to scarlet.exe.
+// Spawn it on normal double-click BEFORE initializing any game/Vulkan state.
+static int scarlet_launch_original_ui(void) {
+    wchar_t program[4096] = {};
+    DWORD n = GetModuleFileNameW(NULL, program, (DWORD)(sizeof program / sizeof program[0]));
+    if (!n || n >= (DWORD)(sizeof program / sizeof program[0] - 32)) return 4;
+    wchar_t *sep = wcsrchr(program, L'\\');
+    if (!sep) return 4;
+    wcscpy(sep + 1, L"ScarletLauncher.exe");
+    STARTUPINFOW si = {0};
+    PROCESS_INFORMATION pi = {0};
+    si.cb = sizeof si;
+    if (!CreateProcessW(program, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        MessageBoxW(NULL,
+            L"ScarletLauncher.exe não encontrado. Compile o launcher nativo.",
+            L"Scarlet", MB_OK | MB_ICONERROR);
+        return 4;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 0;
+}
+#endif
 #if defined(__x86_64__) || defined(__i386__)
 #include <cpuid.h>
 #endif
@@ -402,6 +428,13 @@ static void log_startup_info(void) {
 }
 
 int main(int argc, char **argv) {
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // The Win32 launcher has the original Scarlet PC GDI+ layout and
+    // is separate from the game. "--play" always skips this step.
+    if (argc == 1 && !getenv("LARECOMP_INPUT") &&
+        !getenv("LARECOMP_HOST_INPUT") && !getenv("LARECOMP_REEXEC"))
+        return scarlet_launch_original_ui();
+#endif
     plat_init();
     log_startup_info();
     if (getenv("LARECOMP_REEXEC")) {  // (reserve_guest_space started this process again)
