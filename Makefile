@@ -137,6 +137,13 @@ GAMELIB_BASE_ID := $(shell (cat $(GAMELIB_BASE_SRCS); echo '$(GENFLAGS) $(GAMELI
                      (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
 
 RT_OBJ   := $(patsubst runtime/%.cpp,$(B)/rt/%.o,$(patsubst runtime/%.c,$(B)/rt/%.o,$(RT_SRC)))
+# Scarlet AOT is a distinct runtime flavour: activate its launcher, exact-hair
+# compatibility shader, and version gate only for `make SCARLET_AOT=1`.
+ifneq ($(SCARLET_AOT),)
+ifeq ($(SCARLET_AOT),1)
+OSFLAGS += -DSCARLET_AOT=1
+endif
+endif
 RTFLAGS  := -O2 -g -fno-strict-aliasing -Wall -Wno-unused-function -Iruntime -Iruntime/nvn $(DEPINC) $(OSFLAGS)
 CXXFLAGS := -O2 -g -std=c++17 -I$(IMGUI) -I$(IMGUI)/backends -Iruntime -Iruntime/nvn $(DEPINC)
 
