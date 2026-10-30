@@ -1135,7 +1135,60 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
             uint8_t *lin = expand ? malloc(sz) : s.ptr;
             const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + layer * layer_size + l.offset;
             Unpack u = {src, lin, l.wb, l.hb, l.d, fi->bpb, l.block_height_log2, l.block_depth_log2, row, t->stride, linear};
-            if (!expand && !(b->tp > 0 && layer == 0) && unpack_threads()) {  // (done before the submission: above)
+            // Pokemon Scarlet's exact 32x128x32 RGBA16F sky volume uses
+            // independent 2D GOB slices (block depth log2=0). The generic
+            // tegra_layout_init() assumes a 32-slice GOB stack (log2=5).
+            // On the user's Switch data, that scrambled Z-slices and caused
+            // visible horizontal bands in the 480x270 sky pass. F10 confirmed
+            // clean sky when the CPU upload was deswizzled with depth 0.
+            // Scope the compatibility fix to this exact texture only; keep
+            // SCARLET_SKY_VOLUME_DEPTH=5 for A/B regression/opt-out.
+            bool sky_vol = !linear && !expand && layer == 0 && lv == 0 &&
+                           t->target == 2 && t->format == 0x29 &&
+                           t->width == 32 && t->height == 128 && t->depth == 32;
+            static int sky_bd = -2, sky_dump = -1;
+            if (sky_bd == -2) {
+                const char *e = ENV("SCARLET_SKY_VOLUME_DEPTH");
+                // Correct depth 0 by default for the fingerprinted sky volume.
+                sky_bd = e && *e ? atoi(e) : 0;
+                if (sky_bd < 0 || sky_bd > 5) sky_bd = 0;
+            }
+            if (sky_dump < 0) sky_dump = ENV("SCARLET_SKY_VOLUME_DUMP") != NULL;
+            if (sky_vol) {
+                // This 1 MiB texture is uploaded rarely; unpack synchronously.
+                // With -SkyVolumeDump, the data is ready before it is saved.
+                u.bd = (uint32_t)sky_bd;
+                unpack_one(&u);
+                static int logged;
+                if (logged++ < 4) LOG("[scarlet-sky] sky volume 32x128x32 fmt 0x29; unpack block height %u depth %u (guest assumed depth %u), raw %llu bytes\n",
+                                      u.bh, u.bd, l.block_depth_log2, (unsigned long long)sz);
+                static bool dumped;
+                if (sky_dump && !dumped) {
+                    dumped = true;
+                    SDL_CreateDirectory("build");
+                    SDL_CreateDirectory("build/scarlet-focus");
+                    const char *name = "build/scarlet-focus/sky_volume_linear_rgba16f_32x128x32.bin";
+                    FILE *fp = fopen(name, "wb");
+                    size_t nbytes = (size_t)row * l.hb * l.d;
+                    if (fp) {
+                        size_t written = fwrite(lin, 1, nbytes, fp);
+                        fclose(fp);
+                        LOG("[scarlet-sky] %s: %zu / %zu bytes, block depth %u\n",
+                            name, written, nbytes, u.bd);
+                    } else LOG("[scarlet-sky] failed to write %s\n", name);
+                    // Keep the original Tegra block-linear bytes as well. This
+                    // allows testing all six GOB block-depth interpretations
+                    // offline, without starting the game or capturing F9 again.
+                    const char *raw_name = "build/scarlet-focus/sky_volume_tiled_rgba16f_32x128x32.bin";
+                    fp = fopen(raw_name, "wb");
+                    if (fp) {
+                        size_t raw_written = fwrite(src, 1, (size_t)sz, fp);
+                        fclose(fp);
+                        LOG("[scarlet-sky] %s: %zu / %llu bytes\n",
+                            raw_name, raw_written, (unsigned long long)sz);
+                    } else LOG("[scarlet-sky] failed to write %s\n", raw_name);
+                }
+            } else if (!expand && !(b->tp > 0 && layer == 0) && unpack_threads()) {  // (done before the submission: above)
                 if (up_n == up_cap) up_q = realloc(up_q, sizeof *up_q * (up_cap = up_cap ? up_cap * 2 : 256));
                 up_q[up_n++] = u;
                 up_bytes += sz;

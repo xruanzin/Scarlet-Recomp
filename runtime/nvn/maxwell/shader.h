@@ -55,6 +55,7 @@ typedef struct {
     uint8_t xfb_count[4];
     uint16_t xfb_stride[4];
     uint32_t sint_slots;    // (GLSL) the slots with a signed integer format: an isampler, results read as int bits
+    uint8_t scarlet_hair_mode; // 0 baseline; 1 material-3 mask; 2 experimental isotropic BRDF; exact FS only
 } ShaderKey;
 
 typedef struct {
