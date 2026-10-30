@@ -13,7 +13,7 @@ root = Path(__file__).resolve().parents[1]
 source = (root / 'runtime/nvn/vulkan/exec.c').read_text()
 defer = source[source.index('static uint64_t overlap_defer('):source.index('\nuint64_t renderer_fence_seq(')]
 snap = source[source.index('#define SNAP_HALF'):source.index('// (debug) LARECOMP_LOG_BINDS=1:')]
-decide = source[source.index('#define VK_OVERLAP_DEFAULT'):source.index('static _Atomic uint64_t g_last_gpu_frame_ticks;')]
+decide = source[source.index('#define VK_OVERLAP_DEFAULT'):source.index('static bool xm_on(void);')]
 assert 'VK_OVERLAP_DEFAULT 1' in decide, 'the default is on where the write watch is available (Beta 5)'
 assert 'static void snap_ring_import_tail(void);' in snap
 
@@ -69,6 +69,9 @@ decide_harness = r'''
 #define HEAP_BASE 0x7240000000ull
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
 static int tracking = 1;
+enum { GPU_OVERLAP, GPU_AUTO=0, GPU_ON=1 };
+static struct { int gpu_compat[1]; } g_settings;
+static struct { struct { uint32_t vendorID; } props; } g_vk;
 static int pages_cpu_written(uint64_t addr, uint64_t size, uint32_t since, uint32_t *now) {
     assert(addr == HEAP_BASE && size == 4096 && !since); *now = 1; return tracking ? 0 : -1;
 }
