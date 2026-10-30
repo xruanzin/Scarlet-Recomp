@@ -191,53 +191,20 @@ function Install-ScarletLauncherDlls {
 # Running with -SkipRuntime should still repair DLLs of an already built launcher.
 Install-ScarletLauncherDlls -ExecutableDirectory $bin
 
-# Scarlet/Violet artwork selected by the user; never download the old
-# Scarlet PC background again. Prefer the versioned new asset, then the
-# original user's JPG in their local project / Downloads / Pictures.
+# The uploaded Scarlet/Violet wallpaper is now versioned in GitHub.
+# Copy it on EVERY build, replacing any stale old Scarlet PC image.
 $assets = Join-Path $bin 'assets'
 $background = Join-Path $assets 'scarlet_launcher_background.jpg'
+$sourceBackground = Join-Path $repo 'launcher\assets\scarlet_launcher_background.jpg'
+if ($BackgroundPath) { $sourceBackground = (Resolve-Path -LiteralPath $BackgroundPath -ErrorAction Stop).Path }
+if (!(Test-Path -LiteralPath $sourceBackground -PathType Leaf)) {
+    throw "Fundo Scarlet nao encontrado no repositorio: $sourceBackground"
+}
 New-Item -ItemType Directory -Path $assets -Force | Out-Null
-$imageName = 'Pokemon-Scarlet-Violet-Trailer_10-06-22(2).jpg'
-$candidates = @(
-    (Join-Path $repo 'launcher\assets\scarlet_launcher_background.jpg'),
-    (Join-Path $repo $imageName),
-    (Join-Path (Join-Path $repo 'launcher\assets') $imageName),
-    (Join-Path $env:USERPROFILE "Downloads\$imageName"),
-    (Join-Path $env:USERPROFILE "Pictures\$imageName"),
-    (Join-Path $env:USERPROFILE "Desktop\$imageName"),
-    (Join-Path 'D:\Pokemon Scarlet' $imageName)
-)
-$artwork = $null
-if ($BackgroundPath) {
-    $artwork = (Resolve-Path -LiteralPath $BackgroundPath -ErrorAction Stop).Path
+if ($sourceBackground -ne $background) {
+    Copy-Item -LiteralPath $sourceBackground -Destination $background -Force
 }
-foreach ($candidate in $candidates) {
-    if ($artwork) { break }
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $artwork = (Resolve-Path -LiteralPath $candidate).Path
-        break
-    }
-}
-if (!$artwork) {
-    foreach ($folder in @('Downloads', 'Pictures', 'Desktop')) {
-        $rootFolder = Join-Path $env:USERPROFILE $folder
-        if (!(Test-Path -LiteralPath $rootFolder)) { continue }
-        $match = Get-ChildItem -LiteralPath $rootFolder -Filter 'Pokemon-Scarlet-Violet-Trailer*.jpg' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($match) { $artwork = $match.FullName; break }
-    }
-}
-if ($artwork) {
-    if ($artwork -ne $background) {
-        Copy-Item -LiteralPath $artwork -Destination $background -Force
-    }
-    Write-Host 'Fundo Scarlet/Violet instalado.'
-} else {
-    Write-Warning 'A foto Scarlet/Violet nao foi encontrada. Coloque Pokemon-Scarlet-Violet-Trailer_10-06-22(2).jpg na raiz do repositorio.'
-    # Do not keep accidentally rendering the previous Scarlet PC art.
-    if (Test-Path -LiteralPath $background) {
-        Move-Item -LiteralPath $background -Destination (Join-Path $assets 'old_scarlet_pc_background.jpg') -Force
-    }
-}
+Write-Host 'Fundo Scarlet/Violet instalado.'
 
 # A runtime-only 'dotnet.exe' exists on many Windows PCs, but it cannot run
 # 'dotnet publish'. Check actual SDK installations, not just Get-Command.
