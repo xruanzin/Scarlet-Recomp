@@ -1,6 +1,13 @@
 # Run the existing runtime/AOT with private copies of settings, save and caches.
 [CmdletBinding()]
-param([switch]$NoWait)
+param(
+    [switch]$NoWait,
+    [switch]$SkyAudit,
+    [ValidateSet('baseline','no-tex-memo','fresh-feedback','lod1')]
+    [string]$SkyMode = 'baseline',
+    [ValidateRange(0,1000000)]
+    [int]$SkyFromFrame = 600
+)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $bin = Join-Path $repo 'build\scarlet\eb6deb908752b9c6'
@@ -30,6 +37,19 @@ $env:LARECOMP_NO_LAUNCHER = '1'
 $env:LARECOMP_DATA_ROOT = $data
 $env:SCARLET_EARLY_TLS_PROBE = '1'
 $env:SCARLET_BOOTSTRAP_ALLOCATOR = '1'
+# Opt-in sky A/B. Variables are scoped to this child PowerShell process and its isolated data.
+if ($SkyAudit) {
+    $env:SCARLET_SKY_AUDIT = '1'
+    $env:SCARLET_SKY_FROM_FRAME = [string]$SkyFromFrame
+}
+switch ($SkyMode) {
+    'no-tex-memo'   { $env:LARECOMP_VK_NO_TEX_MEMO = '1' }
+    'fresh-feedback' { $env:LARECOMP_NO_SNAPSHOT_REUSE = '1' }
+    'lod1'          { $env:LARECOMP_LOD_MIN = '1' }
+}
+if ($SkyAudit -or $SkyMode -ne 'baseline') {
+    Write-Host "Sky investigation: mode=$SkyMode; trace=$SkyAudit; from frame=$SkyFromFrame"
+}
 $log = Join-Path $run 'stderr.log'
 Write-Host "Isolated test: $run"
 Write-Host 'Original save/settings/caches are preserved. F10 saves a screenshot in the private data folder.'
