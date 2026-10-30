@@ -2129,6 +2129,7 @@ static inline const GWin *gwin(void) {
 // bytes of the window the game has set up: the heap size, or the whole physical region
 static uint64_t gwin_want(void) { return gwin()->phys ? gwin_.max : kernel_heap_size(); }
 
+static uint64_t hmix(uint64_t h, const void *p, size_t n); // forward declaration; definition below
 static void gmem_window_get(uint64_t *lo, uint64_t *len);  // (the guest-heap import window, below)
 // Translates both stages (false: failed, logged). Holds the translator for the whole program.
 static bool translate_program_now(Prog *p) {
