@@ -187,3 +187,47 @@ Procure a última pasta em `build/scarlet-graphics-runs/<timestamp>/userdata/bui
 para a máscara, confira `[scarlet-hair]` no `stderr.log`.
 **Limites:** estas mudanças não foram compiladas em Windows nem aprovadas
 por comparação visual no instante do commit; nenhuma correção gráfica é reivindicada.
+
+
+## 11. Follow-up with mask-mode F9 capture — expected pink and sky unchanged
+
+The supplied `stderr(4).log` reports `[scarlet-hair] exact FS ... mode mask` and
+`[scarlet-hair] mode 1 material-3 BFE extractor found`. The uploaded `build.zip`
+shows the hair/hat region magenta in the mask test (e.g. pass_050),
+so the diagnostic successfully tags that portion of the scene. The magenta
+removes visible appearance by design; **it is NOT the new hair colour fix**.
+Restoring `-HairMode baseline` reverts the diagnostic tint without a rebuild.
+
+The same ZIP has sky stripes already in the 480x270 `pass_017` and in the
+later composite (e.g. `pass_043`). No previous test modified the sky shader or
+its sampler, therefore seeing unchanged stripes is expected.
+
+The uploaded focus GLSL shows the sky shader uses TWO `texture(t0, vec3(...))`
+samples from a 3D 32x128x32 texture. Its auxiliary textures t1 and t2 are 2D.
+The previous focus `.nvasm` files were zero bytes because
+`maxwell_disassemble()` is a no-op stub in this runtime. The diagnostic
+export was corrected to save GLSL only rather than create empty files.
+
+### Targeted sky 3D filtering A/B, disabled by default
+
+To test whether 3D texel/layer interpolation is responsible for the banding,
+the Vulkan sampler for the **exact shader hash** `9543b220d1d35f7b`,
+fragment slot `t0`, and **3D texture only** may be overridden.
+This leaves all shader math, texture data, other draw programs and the AOT
+unchanged. It makes a copied sampler descriptor and never changes the
+guest descriptor. The modes intentionally preserve the nearest-mip class.
+
+- `-Sky3DFilter baseline`: guest sampler, default/no change
+- `-Sky3DFilter linear`: linear within the sampled 3D texture/mip
+- `-Sky3DFilter nearest`: point sampling (negative A/B control)
+
+~~~powershell
+cd "D:\Scarlet-Recomp"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode baseline -Sky3DFilter linear
+~~~
+
+Compare F10 screenshots on the same save/camera and inspect `[scarlet-sky]`
+for the original min/mag filter values. If the sky looks the same **and the
+original sampler was already linear**, then texture point sampling is unlikely
+to explain the stripes; investigate missing 3D layers/upload, coordinates and
+shader arithmetic instead. This is an **experiment, not a verified visual fix**.
