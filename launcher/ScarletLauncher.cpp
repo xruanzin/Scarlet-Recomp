@@ -29,6 +29,7 @@
 #include <chrono>
 #include <set>
 #include <iterator>
+#include <sstream>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -130,8 +131,8 @@ constexpr std::array<const wchar_t*, 4> kControllerStyles{{
     L"Automático", L"Xbox", L"PlayStation", L"Nintendo"
 }};
 
-constexpr std::array<const wchar_t*, 2> kLanguages{{
-    L"Português (Brasil)", L"English"
+constexpr std::array<const wchar_t*, 4> kLanguages{{
+    L"Português (Brasil)", L"English", L"Español", L"Français"
 }};
 
 HINSTANCE g_instance{};
@@ -176,8 +177,42 @@ std::vector<PackageItem> g_visible_packages;
 std::wstring g_status_text;
 std::atomic<bool> g_importing{false};
 std::wstring g_import_error;
+int g_language_index = 0;
+int g_import_percent = 0;
 fs::path g_exe_dir;
 fs::path g_ini_path;
+
+const wchar_t* Tr(const wchar_t* pt, const wchar_t* en,
+                  const wchar_t* es, const wchar_t* fr) {
+    switch (g_language_index) {
+    case 1: return en;
+    case 2: return es;
+    case 3: return fr;
+    default: return pt;
+    }
+}
+void LauncherLog(const std::string& line) {
+    std::error_code ec;
+    const fs::path folder=g_exe_dir / L"user" / L"log";
+    fs::create_directories(folder,ec);
+    if (ec) return;
+    std::ofstream out(folder / L"scarlet-launcher.log", std::ios::app);
+    if (out) out << GetTickCount64() << " " << line << "\n";
+}
+int ReadImportPercent() {
+    std::ifstream in(g_exe_dir / L"scarlet-games" / L"import.log");
+    std::string line;
+    int percent=0;
+    while (std::getline(in,line)) {
+        if (line.rfind("progress ",0)!=0) continue;
+        std::istringstream progress(line.substr(9));
+        unsigned long long done=0,total=0;
+        if (progress >> done >> total && total > 0)
+            percent=std::max(percent,static_cast<int>(
+                std::min(99.0L,100.0L*done/total)));
+    }
+    return percent;
+}
 
 struct GameWaitContext {
     HANDLE process{};
@@ -494,17 +529,43 @@ void RefreshDlcList() {
 
 void RefreshStatus() {
     const auto packages=PackageFiles(GetText(g_game_edit));
-    if (g_importing.load()) g_status_text=L"Preparando arquivos...";
-    else if (packages.empty()) g_status_text=L"Nenhum NSP/XCI selecionado";
+    if (g_importing.load()) g_status_text=Tr(
+        L"Extraindo arquivos, aguarde", L"Extracting files, please wait",
+        L"Extrayendo archivos, espere", L"Extraction des fichiers, patientez");
+    else if (packages.empty()) g_status_text=Tr(
+        L"Nenhum NSP/XCI selecionado", L"No NSP/XCI selected",
+        L"Ningún NSP/XCI seleccionado", L"Aucun NSP/XCI sélectionné");
     else {
-        g_status_text=std::to_wstring(packages.size())+L" pacote(s) selecionado(s)";
-        if (InstallMatches(packages)) g_status_text+=L"     Pronto";
+        g_status_text=std::to_wstring(packages.size())+Tr(
+            L" pacote(s) selecionado(s)", L" package(s) selected",
+            L" paquete(s) seleccionado(s)", L" fichier(s) sélectionné(s)");
+        if (InstallMatches(packages)) g_status_text+=Tr(
+            L"     Pronto", L"     Ready", L"     Listo", L"     Prêt");
     }
     RefreshDlcList();
     RECT r{592,607,1125,646};
     InvalidateRect(g_main,&r,FALSE);
 }
 
+void ApplyLanguage() {
+    const auto label=[](int id, const wchar_t* pt, const wchar_t* en,
+                        const wchar_t* es, const wchar_t* fr) {
+        HWND control=GetDlgItem(g_main,id);
+        if (control) SetWindowTextW(control,Tr(pt,en,es,fr));
+    };
+    label(ID_TAB_GAME,L"JOGO",L"GAME",L"JUEGO",L"JEU");
+    label(ID_PLAY,L"JOGAR",L"PLAY",L"JUGAR",L"JOUER");
+    label(ID_GAME_BROWSE,L"PROCURAR",L"BROWSE",L"BUSCAR",L"PARCOURIR");
+    label(ID_KEYS_BROWSE,L"PROCURAR",L"BROWSE",L"BUSCAR",L"PARCOURIR");
+    label(ID_TITLE_KEYS_BROWSE,L"PROCURAR",L"BROWSE",L"BUSCAR",L"PARCOURIR");
+    label(ID_DLC_ADD,L"+ ADICIONAR NSP",L"+ ADD NSP",L"+ AÑADIR NSP",L"+ AJOUTER NSP");
+    label(ID_UPDATE_BROWSE,L"+ ADICIONAR PASTA",L"+ ADD FOLDER",
+          L"+ AÑADIR CARPETA",L"+ AJOUTER DOSSIER");
+    label(ID_DLC_REMOVE,L"REMOVER",L"REMOVE",L"QUITAR",L"RETIRER");
+    label(ID_OPEN_LOGS,L"ABRIR LOGS",L"OPEN LOGS",L"VER REGISTROS",L"OUVRIR JOURNAUX");
+    RefreshStatus();
+    InvalidateRect(g_main,nullptr,FALSE);
+}
 void ShowPage(Page page) {
     g_page = page;
     for (size_t i = 0; i < g_page_controls.size(); ++i) {
@@ -537,6 +598,7 @@ void SaveSettings() {
     IniWrite(L"Game",L"title_keys",GetText(g_title_keys_edit));
     IniWrite(L"Game",L"target_fps",std::to_wstring(kScarletNativeFpsValues[
         std::clamp(ComboSelection(g_fps),0,3)]));
+    IniWriteInt(L"General",L"language",g_language_index);
     std::ofstream f(g_ini_path.parent_path()/L"scarlet_extra_packages.txt",
                     std::ios::binary|std::ios::trunc);
     for (const auto& p:g_dlcs) f << "F" << Utf8(p) << "\n";
@@ -572,7 +634,9 @@ void LoadSettings() {
     auto selected=std::find(kScarletNativeFpsValues.begin(),kScarletNativeFpsValues.end(),target);
     SetComboSelection(g_fps,selected==kScarletNativeFpsValues.end()?0:
                       (int)(selected-kScarletNativeFpsValues.begin()));
-    RefreshStatus();
+    g_language_index=std::clamp(IniReadInt(L"General",L"language",0),0,3);
+    SetComboSelection(g_language,g_language_index);
+    ApplyLanguage();
 }
 
 void OpenFolder(const fs::path& path) {
@@ -808,7 +872,9 @@ void LaunchGame() {
         return;
     }
     if (InstallMatches(packages)) {StartNativeGame(); return;}
+    g_import_percent=0;
     g_importing.store(true);
+    LauncherLog("Import started");
     RefreshStatus();
     auto* job=new ImportJob{folder,GetText(g_keys_edit),
                             GetText(g_title_keys_edit),g_main};
@@ -841,6 +907,8 @@ void CreateGamePage() {
     MakeButton(Game,ID_TITLE_KEYS_BROWSE,955,537,168,32,L"PROCURAR");
 
     g_fps=MakeCombo(Game,ID_FPS,300,608,268,132,kScarletNativeFps,0);
+    MakeButton(Game,ID_OPEN_LOGS,28,280,205,44,L"ABRIR LOGS");
+    g_language=MakeCombo(Game,ID_LANGUAGE,28,397,205,160,kLanguages,0);
 }
 
 void CreateGraphicsPage() {
@@ -1028,18 +1096,23 @@ void DrawBackground(HWND hwnd, HDC hdc) {
     graphics.DrawString(L"Pokémon Scarlet • Windows", -1, &label,
                         PointF(30.0f, 135.0f), &text_brush);
 
-    graphics.DrawString(L"JOGO E CONTEÚDO", -1, &heading,
+    graphics.DrawString(Tr(L"JOGO E CONTEÚDO",L"GAME & CONTENT",
+                           L"JUEGO Y CONTENIDO",L"JEU ET CONTENU"), -1, &heading,
                         PointF(300.0f, 103.0f), &title_brush);
-    graphics.DrawString(L"Pasta do jogo (.NSP / .XCI)", -1, &label,
+    graphics.DrawString(Tr(L"Pasta do jogo (.NSP / .XCI)",L"Game folder (.NSP / .XCI)",
+                           L"Carpeta del juego (.NSP / .XCI)",L"Dossier du jeu (.NSP / .XCI)"), -1, &label,
                         PointF(300.0f, 153.0f), &text_brush);
-    graphics.DrawString(L"PACOTES", -1, &heading,
+    graphics.DrawString(Tr(L"PACOTES",L"PACKAGES",L"PAQUETES",L"PAQUETS"), -1, &heading,
                         PointF(300.0f, 247.0f), &title_brush);
     graphics.DrawString(L"prod.keys", -1, &label,
                         PointF(300.0f, 450.0f), &text_brush);
-    graphics.DrawString(L"title.keys (opcional)", -1, &label,
+    graphics.DrawString(Tr(L"title.keys (opcional)",L"title.keys (optional)",
+                           L"title.keys (opcional)",L"title.keys (facultatif)"), -1, &label,
                         PointF(300.0f, 510.0f), &text_brush);
     graphics.DrawString(L"FPS", -1, &label,
                         PointF(300.0f, 579.0f), &text_brush);
+    graphics.DrawString(Tr(L"IDIOMA",L"LANGUAGE",L"IDIOMA",L"LANGUE"), -1, &label,
+                        PointF(28.0f, 365.0f), &text_brush);
 
     SolidBrush status_panel(Color(255, 36, 28, 38));
     graphics.FillRectangle(&status_panel, 592, 607, 531, 35);
@@ -1048,6 +1121,22 @@ void DrawBackground(HWND hwnd, HDC hdc) {
     if (!g_status_text.empty()) {
         graphics.DrawString(g_status_text.c_str(), -1, &status_font,
                             PointF(606.0f, 613.0f), &text_brush);
+    }
+    if (g_importing.load() || g_import_percent == 100) {
+        const int percent=std::clamp(g_import_percent,0,100);
+        const std::wstring percentage=std::to_wstring(percent)+L"%";
+        graphics.DrawString(Tr(L"Extraindo arquivos, aguarde",
+            L"Extracting files, please wait",L"Extrayendo archivos, espere",
+            L"Extraction des fichiers, patientez"), -1, &status_font,
+            PointF(300.0f, 651.0f), &text_brush);
+        graphics.DrawString(percentage.c_str(),-1,&status_font,
+                            PointF(901.0f,651.0f),&title_brush);
+        SolidBrush track(Color(255,57,43,50));
+        SolidBrush fill(Color(255,218,174,55));
+        graphics.FillRectangle(&track,300,679,650,14);
+        if (percent>0) graphics.FillRectangle(&fill,300,679,650*percent/100,14);
+        Pen outline(Color(255,142,108,45));
+        graphics.DrawRectangle(&outline,300,679,650,14);
     }
 }
 
@@ -1137,6 +1226,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (HIWORD(wparam) == EN_CHANGE && id == ID_GAME_EDIT &&
             !g_importing.load()) RefreshStatus();
         if (HIWORD(wparam) == CBN_SELCHANGE && id == ID_FPS) SaveSettings();
+        if (HIWORD(wparam) == CBN_SELCHANGE && id == ID_LANGUAGE) {
+            g_language_index=std::clamp(ComboSelection(g_language),0,3);
+            SaveSettings();
+            ApplyLanguage();
+        }
         break;
     }
 
@@ -1172,18 +1266,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
     case kImportFinishedMessage: {
         g_importing.store(false);
+        if (wparam) g_import_percent=100;
         RefreshStatus();
-        if (wparam) StartNativeGame();
-        else MessageBoxW(hwnd,
-             g_import_error.empty()?L"Falha na importação.":g_import_error.c_str(),
-             kTitle,MB_OK|MB_ICONERROR);
+        std::error_code ec;
+        const fs::path logs=g_exe_dir / L"user" / L"log";
+        fs::create_directories(logs,ec);
+        fs::copy_file(g_exe_dir / L"scarlet-games" / L"import.log",
+                      logs / L"import.log",fs::copy_options::overwrite_existing,ec);
+        if (wparam) {
+            LauncherLog("Import completed successfully");
+            UpdateWindow(hwnd);
+            StartNativeGame();
+        } else {
+            LauncherLog("Import failed; see import.log");
+            MessageBoxW(hwnd,
+                g_import_error.empty()?Tr(L"Falha na importação. Abra LOGS.",
+                    L"Import failed. Open LOGS.",L"Falló la importación. Abra REGISTROS.",
+                    L"Échec de l'importation. Ouvrez JOURNAUX.")
+                                      :g_import_error.c_str(),
+                kTitle,MB_OK|MB_ICONERROR);
+        }
         return 0;
     }
     case WM_TIMER:
         if (g_importing.load()) {
-            g_status_text=L"Preparando arquivos...";
-            RECT r{300,529,1125,600};
-            InvalidateRect(hwnd,&r,FALSE);
+            const int now=std::max(g_import_percent,ReadImportPercent());
+            if (now!=g_import_percent) {
+                g_import_percent=now;
+                RECT r{295,643,970,699};
+                InvalidateRect(hwnd,&r,FALSE);
+            }
         }
         return 0;
     case kGameExitedMessage: {
@@ -1285,7 +1397,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark));
 
     ShowWindow(hwnd, show);
-    SetTimer(hwnd,1,750,nullptr);
+    SetTimer(hwnd,1,200,nullptr);
     UpdateWindow(hwnd);
 
     MSG msg{};
