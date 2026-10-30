@@ -178,11 +178,19 @@ static void scarlet_line(SDL_Window *win,int slot,const char *name,const std::st
 extern "C" const char *scarlet_launcher_game_root(void) { return scarlet_root; }
 
 static void scarlet_launch_run() {
+    fprintf(stderr, "[scarlet-launcher] initializing native Scarlet start screen\n");
     scarlet_load_picks();
     scarlet_load_fps_choice();
     scarlet_ui_play=false;
     ui_window_init();
     SDL_Window *win=ui_window();
+    if (!win) {
+        fprintf(stderr, "[scarlet-launcher] SDL window creation failed: %s\n", SDL_GetError());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Scarlet","Nao foi possivel criar a janela do launcher.",NULL);
+        exit(4);
+    }
+    g_launcher_win = win;
+    input_mouse_release(win);  // release mouse capture after returning from game
     ImGuiContext *old=ImGui::GetCurrentContext();
     ImGuiContext *ctx=ImGui::CreateContext();
     ImGui::SetCurrentContext(ctx);
@@ -194,8 +202,13 @@ static void scarlet_launch_run() {
         io.Fonts->AddFontDefault();
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(1.25f);
-    ImGui_ImplSDL3_InitForVulkan(win);
-    vk_imgui_backend_init();
+    if (!ImGui_ImplSDL3_InitForVulkan(win) || !vk_imgui_backend_init()) {
+        fprintf(stderr, "[scarlet-launcher] failed to initialize ImGui SDL3/Vulkan backend: %s\n",SDL_GetError());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Scarlet",
+                                 "Falha ao inicializar o launcher Vulkan/ImGui. Veja o log.",win);
+        exit(4);
+    }
+    fprintf(stderr, "[scarlet-launcher] native UI ready; waiting for game file selection\n");
     static const float bg[]={0.045f,0.055f,0.085f,1.0f};
     while (!scarlet_ui_play) {
         SDL_Event e;
@@ -266,6 +279,7 @@ static void scarlet_launch_run() {
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),(VkCommandBuffer)vk_frame_cmd());
         vk_frame_end(NULL);
+        SDL_Delay(10);  // avoid spinning when the launcher is idle
     }
     vk_imgui_backend_shutdown();
     ImGui_ImplSDL3_Shutdown();

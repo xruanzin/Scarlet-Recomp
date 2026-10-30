@@ -423,6 +423,18 @@ int main(int argc, char **argv) {
     bool no_launcher = nl && *nl && strcmp(nl, "0");
     bool skip_launcher = no_launcher || getenv("LARECOMP_INPUT");  // tests boot straight in
     if (getenv("LARECOMP_FORCE_LAUNCHER")) skip_launcher = false;  // (test: the start screen, then the scripted input)
+#ifdef SCARLET_AOT
+    // The default Scarlet user workflow is ALWAYS the launcher when opened
+    // without arguments. Stale test environment variables must not silently
+    // boot a missing/extracted Z-A root or show a black screen. Explicit
+    // --play and scripted runs are still supported below.
+    if (argc == 1 && !getenv("LARECOMP_INPUT") && !getenv("LARECOMP_HOST_INPUT")) {
+        if (no_launcher || skip_launcher)
+            LOG("[scarlet] ignoring inherited LARECOMP_NO_LAUNCHER for normal start; use --play for direct testing\n");
+        no_launcher = false;
+        skip_launcher = false;
+    }
+#endif
     static char arg_root[1024];
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--play")) skip_launcher = true;
@@ -480,6 +492,9 @@ int main(int argc, char **argv) {
             exit(3);
         }
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
+#ifdef SCARLET_AOT
+            LOG("[scarlet] entering native Scarlet launcher before game boot\n");
+#endif
             extern void launcher_run(const char *root);
             launcher_run(root);
 #ifdef SCARLET_AOT
