@@ -231,3 +231,30 @@ for the original min/mag filter values. If the sky looks the same **and the
 original sampler was already linear**, then texture point sampling is unlikely
 to explain the stripes; investigate missing 3D layers/upload, coordinates and
 shader arithmetic instead. This is an **experiment, not a verified visual fix**.
+
+
+### Hair material-3 colour restoration candidate (opt-in, not a confirmed fix)
+
+After the mask A/B identified the affected hair pixels, a separate
+`-HairMode albedo` was introduced for the *exact* deferred-lighting FS
+`aa68a5939321c84a`. It retains the **guest-computed lighting luminance**
+and restores **G-buffer albedo chroma from t4** only for pixels whose
+stencil BFE has material ID 3. It reuses the method in
+`xruanzin/scarlet_pc`, with the guard that the shader really contains
+the fingerprinted BFE extraction.
+
+The original isotropic experiment was not a proven visual solution,
+so this new mode does **not** change the guest's material branch. The
+normal `-HairMode baseline` and the magenta `mask` remain unchanged.
+Because this is a chroma-reconstruction approximation, directional
+highlights and hues may still differ from original Switch output.
+Only compare on the same scene/save with F10 screenshots.
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo -Sky3DFilter linear
+~~~
+
+This test applies two independent, *fingerprint-scoped* experiments to
+different shaders in the same isolated run. If one improves and the
+other doesn't, A/B them separately before enabling either by default.
+Neither is a verified permanent fix. Do not change the functional branch.
