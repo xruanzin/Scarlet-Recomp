@@ -107,7 +107,8 @@ static int Run(string[] args)
     bool version400 = false;
     foreach (var (nca, _) in ncas)
     {
-        if (nca.Header.ContentType != NcaContentType.Control) continue;
+        if (nca.Header.ContentType != NcaContentType.Control ||
+            nca.Header.TitleId != ScarletBase + 0x800) continue;
         using var control = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
         foreach (var e in control.EnumerateEntries("/", "*.nacp"))
         {
