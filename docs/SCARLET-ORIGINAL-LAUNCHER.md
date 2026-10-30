@@ -103,3 +103,40 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_ne
 ```
 
 Compilação e teste visual no Windows do usuário ainda pendentes.
+
+## Campos de keys e seletor de FPS (30/10/2026)
+
+A tela única **JOGO** contém agora:
+- Pasta do jogo NSP/XCI e lista de pacotes adicionais sem limite.
+- `prod.keys` com botão PROCURAR. `title.keys` opcional com botão PROCURAR.
+  A seleção é persistida em `user/config/scarlet_launcher.ini`.
+  O caminho indicado é passado diretamente ao importador; não exige
+  colocar as keys junto aos NSPs. Quando o campo fica vazio, permanecem
+  os diretórios de keys automaticamente pesquisados antes.
+- Seletor de FPS: **30 / 60 / 120 / 240**, persistido e passado ao
+  processo `scarlet.exe` por `SCARLET_TARGET_FPS`.
+
+O runtime aplica o valor ao período de frame do Scarlet 4.0.0 somente
+após conferir program ID, limite do módulo e constante esperada. O
+NVN apresenta com intervalo 2 (modo 30 original), 1 (60), ou 0 (120/240).
+120 e 240 possuem limite de apresentação host correspondente.
+**Essas são metas de FPS, não desempenho garantido.** O patch de
+120/240 é extrapolado e ainda não tem validação de física,
+temporização, animações e batalhas. No caso de falha na identificação
+do jogo, o runtime mantém 30 FPS.
+
+As keys são utilizadas para a importação e não são incluídas no GitHub.
+Os campos novos são controles reais; os rótulos são desenhados na
+superfície GDI+ existente, sem os antigos STATIC transparentes.
+
+Teste local:
+
+```powershell
+cd D:\Scarlet-Recomp
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipImporter
+& .\build\scarlet\eb6deb908752b9c6\ScarletLauncher.exe
+```
+
+Para importar os NSP/XCI, execute build_next_version.ps1 sem
+`-SkipImporter` antes de clicar JOGAR. A versão ainda requer
+compilação/validação no Windows do proprietário.
