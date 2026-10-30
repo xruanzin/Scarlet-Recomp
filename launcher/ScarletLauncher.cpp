@@ -1021,12 +1021,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         case ID_PLAY: LaunchGame(); return 0;
 
         case ID_GAME_BROWSE: {
+            if (g_importing.load()) return 0;
             auto folder=OpenPackageFolder(hwnd);
             if (!folder.empty()) SetText(g_game_edit,folder);
             RefreshStatus();
             return 0;
         }
         case ID_UPDATE_BROWSE: {
+            if (g_importing.load()) return 0;
             const auto folder=OpenPackageFolder(hwnd);
             if (!folder.empty() && std::find_if(
                 g_extra_folders.begin(),g_extra_folders.end(),
@@ -1039,6 +1041,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         case ID_DLC_ADD: {
+            if (g_importing.load()) return 0;
             const auto file=OpenFile(hwnd,
                 L"NSP / XCI\0*.nsp;*.xci\0Todos os arquivos\0*.*\0");
             if (!file.empty() && std::find_if(g_dlcs.begin(),g_dlcs.end(),
@@ -1051,6 +1054,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         case ID_DLC_REMOVE: {
+            if (g_importing.load()) return 0;
             const int selected=(int)SendMessageW(g_dlc_list,LB_GETCURSEL,0,0);
             if (selected<0 || (size_t)selected>=g_visible_packages.size()) return 0;
             auto item=g_visible_packages[(size_t)selected];
@@ -1072,7 +1076,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         default:
             break;
         }
-        if (HIWORD(wparam) == EN_CHANGE && id == ID_GAME_EDIT) {
+        if (HIWORD(wparam) == EN_CHANGE && id == ID_GAME_EDIT &&
+            !g_importing.load()) {
             RefreshStatus();
         }
         break;
