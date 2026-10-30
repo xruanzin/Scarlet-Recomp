@@ -102,6 +102,25 @@ static int Run(string[] args)
                Convert.ToHexString(id).StartsWith(expected, StringComparison.OrdinalIgnoreCase);
     }
 
+    // NACP display version is required because 3.0.1 and 4.0.0 can share
+    // an NSO Build ID. A build ID alone is NOT an update-version proof.
+    bool version400 = false;
+    foreach (var (nca, _) in ncas)
+    {
+        if (nca.Header.ContentType != NcaContentType.Control) continue;
+        using var control = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+        foreach (var e in control.EnumerateEntries("/", "*.nacp"))
+        {
+            using var f = new UniqueRef<IFile>();
+            control.OpenFile(ref f.Ref, e.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+            var version = new byte[16];
+            f.Get.Read(out _, 0x3060, version).ThrowIfFailure();
+            string shown = System.Text.Encoding.UTF8.GetString(version).TrimEnd('\0');
+            if (shown == "4.0.0") version400 = true;
+        }
+    }
+    if (!version400)
+        return Fail("no update Control NACP with display version 4.0.0; verify the selected update NSP");
     Nca? base_ = null, upd = null;
     var dlcs = new List<Nca>();
     foreach (var (nca, name) in ncas)
