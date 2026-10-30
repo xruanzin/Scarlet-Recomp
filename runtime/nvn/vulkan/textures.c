@@ -1173,6 +1173,17 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
                         LOG("[scarlet-sky] %s: %zu / %zu bytes, block depth %u\n",
                             name, written, nbytes, u.bd);
                     } else LOG("[scarlet-sky] failed to write %s\n", name);
+                    // Keep the original Tegra block-linear bytes as well. This
+                    // allows testing all six GOB block-depth interpretations
+                    // offline, without starting the game or capturing F9 again.
+                    const char *raw_name = "build/scarlet-focus/sky_volume_tiled_rgba16f_32x128x32.bin";
+                    fp = fopen(raw_name, "wb");
+                    if (fp) {
+                        size_t raw_written = fwrite(src, 1, (size_t)sz, fp);
+                        fclose(fp);
+                        LOG("[scarlet-sky] %s: %zu / %llu bytes\n",
+                            raw_name, raw_written, (unsigned long long)sz);
+                    } else LOG("[scarlet-sky] failed to write %s\n", raw_name);
                 }
             } else if (!expand && !(b->tp > 0 && layer == 0) && unpack_threads()) {  // (done before the submission: above)
                 if (up_n == up_cap) up_q = realloc(up_q, sizeof *up_q * (up_cap = up_cap ? up_cap * 2 : 256));
