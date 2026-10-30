@@ -6684,7 +6684,8 @@ static void draw_(CmdRec *r, bool indexed) {
     if (hair_mode < 0) {
         const char *e = ENV("SCARLET_HAIR_MODE");
         hair_mode = e && strcmp(e, "mask") == 0 ? 1 :
-                    e && strcmp(e, "isotropic") == 0 ? 2 : 0;
+                    e && strcmp(e, "isotropic") == 0 ? 2 :
+                    e && strcmp(e, "albedo") == 0 ? 3 : 0;
     }
     if (hair_mode && st.program->stages[1].code_addr) {
         uint64_t fs = st.program->stages[1].code_addr;
@@ -6696,7 +6697,7 @@ static void draw_(CmdRec *r, bool indexed) {
             if (!reported) {
                 reported = true;
                 LOG("[scarlet-hair] exact FS %016llx mode %s (experimental, not a proven fix)\n",
-                    (unsigned long long)hash, hair_mode == 1 ? "mask" : "isotropic");
+                    (unsigned long long)hash, hair_mode == 1 ? "mask" : hair_mode == 2 ? "isotropic" : "albedo");
             }
         }
     }
