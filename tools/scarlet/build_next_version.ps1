@@ -200,7 +200,7 @@ $imageName = 'Pokemon-Scarlet-Violet-Trailer_10-06-22(2).jpg'
 $candidates = @(
     (Join-Path $repo 'launcher\assets\scarlet_launcher_background.jpg'),
     (Join-Path $repo $imageName),
-    (Join-Path $repo 'launcher\assets' $imageName),
+    (Join-Path (Join-Path $repo 'launcher\assets') $imageName),
     (Join-Path $env:USERPROFILE "Downloads\$imageName"),
     (Join-Path $env:USERPROFILE "Pictures\$imageName"),
     (Join-Path $env:USERPROFILE "Desktop\$imageName")
