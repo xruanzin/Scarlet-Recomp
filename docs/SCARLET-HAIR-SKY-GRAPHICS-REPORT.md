@@ -156,7 +156,7 @@ Qualquer outra assinatura exibe `[scarlet-hair] ... NOT FOUND` e não pinta pixe
 - `-HairMode isotropic`: reaplica o redirecionamento simplificado do antigo experimento
   ao material 3; pode produzir alteração visual errada e só serve para comparação.
 - `-DumpFocusShaders`: grava GLSL traduzido **somente** dos fingerprints de cabelo,
-  céu e compositor em `userdata/build/scarlet-focus/fs_<hash>_<mode>.frag` de cada run.
+  céu e compositor em `userdata/build/scarlet-focus/fs_<hash>_<mode>.frag` e `fs_<hash>.nvasm` de cada run.
 
 Os dois modos experimentais são isolados na identidade de programa e cache
 (`ShaderKey.scarlet_hair_mode` espelhado na vertex key), sem tocar na AOT e
