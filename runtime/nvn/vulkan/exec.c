@@ -2164,6 +2164,17 @@ static bool translate_program_now(Prog *p) {
             } else {
                 LOG("[scarlet-focus] cannot write %s\n", path);
             }
+            // Native Maxwell disassembly is needed to map texture-coordinate
+            // operations and the stencil-material BFE to GLSL statements.
+            snprintf(path, sizeof path, "build/scarlet-focus/fs_%016llx.nvasm",
+                     (unsigned long long)hash);
+            f = fopen(path, "wb");
+            if (f) {
+                maxwell_disassemble((const uint8_t *)(uintptr_t)p->code[1],
+                                    p->cmax[1], STAGE_FRAGMENT, f);
+                fclose(f);
+                LOG("[scarlet-focus] fs %016llx -> %s\n", (unsigned long long)hash, path);
+            }
         }
     }
     if (ENV("LARECOMP_DUMP_GLSL")) {  // (debug) build/glsl/<code address>.{vert,frag}[.asm]: source and disassembly
