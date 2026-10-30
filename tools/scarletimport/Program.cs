@@ -48,6 +48,18 @@ static int Run(string[] args)
 {
     string? titleKeys = null;  // (--title-keys: the launcher found it by its contents, whatever its name)
     if (args.Length >= 2 && args[0] == "--title-keys") (titleKeys, args) = (args[1], args[2..]);
+    // The original Scarlet PC Win32 launcher selects one folder. Read every
+    // discovered NSP/XCI from a UTF-8 manifest: no fixed DLC slots and no
+    // Windows command-line length cap when many packages are present.
+    if (args.Length == 4 && args[2] == "--packages-file")
+    {
+        var files = File.ReadAllLines(args[3])
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Where(p => Path.GetExtension(p).Equals(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                        Path.GetExtension(p).Equals(".xci", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        args = new[] { args[0], args[1] }.Concat(files).ToArray();
+    }
     if (args.Length < 3) return Fail("usage: scarletimport [--title-keys <title.keys>] <prod.keys> <out dir> <package.xci|nsp>...");
     string keyDir = Path.GetDirectoryName(Path.GetFullPath(args[0]))!;
     titleKeys ??= new[] { "title.keys", "title.keys.txt" }.Select(n => Path.Combine(keyDir, n)).FirstOrDefault(File.Exists);
