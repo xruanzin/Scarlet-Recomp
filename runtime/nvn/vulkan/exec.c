@@ -5460,7 +5460,7 @@ static void shadow_slot_check(int stage, const ShaderTexture *st_, int i, uint64
 static void scarlet_sky_audit_binding(int stage, const ShaderTexture *shader, int slot, uint64_t handle,
                                        const NvnTexEntry *entry, VkImageView view) {
     static int enabled = -1;
-    static uint64_t from_frame = 600;
+    static uint64_t from_frame = 600, focus_fs;
     static unsigned nseen;
     static struct { uint64_t fs, handle, view_hash; int slot; } seen[512];
     if (enabled < 0) {
@@ -5468,8 +5468,11 @@ static void scarlet_sky_audit_binding(int stage, const ShaderTexture *shader, in
         enabled = e && atoi(e) != 0;
         const char *from = ENV("SCARLET_SKY_FROM_FRAME");
         if (from && *from) from_frame = strtoull(from, NULL, 10);
+        const char *focus = ENV("SCARLET_GRAPHICS_FSHASH");
+        if (focus && *focus) focus_fs = strtoull(focus, NULL, 16);
     }
-    if (!enabled || stage != 1 || !handle || !entry || !entry->tex || nseen >= 512) return;
+    if (!enabled || stage != 1 || !handle || !entry || !entry->tex || nseen >= 512 ||
+        (focus_fs && g_cur_fs_hash != focus_fs)) return;
     extern uint64_t vk_frame_counter(void);
     uint64_t frame = vk_frame_counter();
     if (frame < from_frame) return;
@@ -5500,6 +5503,58 @@ static void scarlet_sky_audit_binding(int stage, const ShaderTexture *shader, in
         sd ? sd->min_filter : 0, sd ? sd->mag_filter : 0,
         sd ? sd->wrap[0] : 0, sd ? sd->wrap[1] : 0, sd ? sd->wrap[2] : 0,
         sd ? sd->lod_bias : 0.0, sd ? sd->lod_min : 0.0, sd ? sd->lod_max : 0.0);
+}
+
+// Opt-in draw provenance for Scarlet's hair and sky: connect the shader seen by the
+// texture audit with its VS/FS code addresses, colour target, and fragment constant
+// buffer bindings. No guest memory reads, shader changes or Vulkan commands here.
+// SCARLET_GRAPHICS_AUDIT=1; SCARLET_GRAPHICS_FROM_FRAME=600; optional
+// SCARLET_GRAPHICS_FSHASH=<16 hex digits> focuses both this and [skyaudit].
+// Bounded to 512 distinct (FS, VS, first colour target) combinations.
+static void scarlet_graphics_audit_draw(const Prog *p) {
+    static int enabled = -1;
+    static uint64_t from_frame = 600, focus_fs;
+    static unsigned nseen;
+    static struct { uint64_t fs, vs; const NvnTexture *rt; } seen[512];
+    if (enabled < 0) {
+        const char *e = ENV("SCARLET_GRAPHICS_AUDIT");
+        enabled = e && atoi(e) != 0;
+        const char *from = ENV("SCARLET_GRAPHICS_FROM_FRAME");
+        if (from && *from) from_frame = strtoull(from, NULL, 10);
+        const char *focus = ENV("SCARLET_GRAPHICS_FSHASH");
+        if (focus && *focus) focus_fs = strtoull(focus, NULL, 16);
+    }
+    if (!enabled || !p || !p->fi || !st.program || nseen >= 512 ||
+        (focus_fs && focus_fs != g_cur_fs_hash)) return;
+    extern uint64_t vk_frame_counter(void);
+    uint64_t frame = vk_frame_counter();
+    if (frame < from_frame) return;
+    uint64_t vs = st.program->stages[0].code_addr;
+    const NvnTexture *rt = st.rt.ncolor ? st.rt.color[0] : NULL;
+    for (unsigned i = 0; i < nseen; i++)
+        if (seen[i].fs == g_cur_fs_hash && seen[i].vs == vs && seen[i].rt == rt) return;
+    seen[nseen].fs = g_cur_fs_hash;
+    seen[nseen].vs = vs;
+    seen[nseen++].rt = rt;
+    LOG("[gfxaudit] frame %llu fs %016llx vs_code %#llx fs_code %#llx ntex %d fcb_mask %#x "
+        "rt_count %d rt0 %p depth %p viewport %.0f,%.0f,%.0f,%.0f\n",
+        (unsigned long long)frame, (unsigned long long)g_cur_fs_hash, (unsigned long long)vs,
+        (unsigned long long)st.program->stages[1].code_addr, p->fi->ntex, p->fi->cbuf_mask,
+        st.rt.ncolor, (const void *)rt, (void *)st.rt.depth,
+        st.viewport[0][0], st.viewport[0][1], st.viewport[0][2], st.viewport[0][3]);
+    for (int i = 0; i < st.rt.ncolor && i < 8; i++) {
+        const NvnTexture *t = st.rt.color[i];
+        if (t) LOG("[gfxaudit] fs %016llx rt%d %p %ux%u fmt %#x\n",
+                   (unsigned long long)g_cur_fs_hash, i, (const void *)t,
+                   t->width, t->height, t->format);
+    }
+    for (int i = 0; i < 18; i++) {
+        if (!((p->fi->cbuf_mask >> i) & 1u)) continue;
+        const Range *b = &st.ubuf[1][i];
+        LOG("[gfxaudit] fs %016llx fcb%d addr %#llx bytes %llu\n",
+            (unsigned long long)g_cur_fs_hash, i, (unsigned long long)b->addr,
+            (unsigned long long)b->size);
+    }
 }
 
 static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo *out, float sc[2], uint32_t wh[2], float fr[2]) {
@@ -6656,6 +6711,7 @@ static void draw_(CmdRec *r, bool indexed) {
     if (lighting) gtao_before_lighting(pr);  // (GTAO from the scene depth, before the lighting reads the G-buffer)
     if (water_is_surface(pr)) water_before();  // (the depth and the lit image before the water: water_apply)
     begin_pass();
+    scarlet_graphics_audit_draw(pr);  // after feedback resolution and pass setup, not skipped/replaced draws
     if (lighting) gtao_mark(st.rt.ncolor ? st.rt.color[0] : NULL);
     VkCommandBuffer cb = vk_cmd();
 

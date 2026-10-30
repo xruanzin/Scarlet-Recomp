@@ -3,12 +3,19 @@
 param(
     [switch]$NoWait,
     [switch]$SkyAudit,
+    [switch]$GraphicsAudit,
+    [ValidateRange(0,1000000)]
+    [int]$GraphicsFromFrame = 600,
+    [string]$GraphicsShaderHash = '',
     [ValidateSet('baseline','no-tex-memo','fresh-feedback','lod1')]
     [string]$SkyMode = 'baseline',
     [ValidateRange(0,1000000)]
     [int]$SkyFromFrame = 600
 )
 $ErrorActionPreference = 'Stop'
+if ($GraphicsShaderHash -and $GraphicsShaderHash -notmatch '^[0-9A-Fa-f]{1,16}$') {
+    throw 'GraphicsShaderHash must contain 1 to 16 hexadecimal digits (without 0x).'
+}
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $bin = Join-Path $repo 'build\scarlet\eb6deb908752b9c6'
 $source = Join-Path $repo 'scarlet-boot-test'
@@ -42,13 +49,20 @@ if ($SkyAudit) {
     $env:SCARLET_SKY_AUDIT = '1'
     $env:SCARLET_SKY_FROM_FRAME = [string]$SkyFromFrame
 }
+if ($GraphicsAudit) {
+    $env:SCARLET_GRAPHICS_AUDIT = '1'
+    $env:SCARLET_GRAPHICS_FROM_FRAME = [string]$GraphicsFromFrame
+}
+if ($GraphicsShaderHash) {
+    $env:SCARLET_GRAPHICS_FSHASH = $GraphicsShaderHash
+}
 switch ($SkyMode) {
     'no-tex-memo'   { $env:LARECOMP_VK_NO_TEX_MEMO = '1' }
     'fresh-feedback' { $env:LARECOMP_NO_SNAPSHOT_REUSE = '1' }
     'lod1'          { $env:LARECOMP_LOD_MIN = '1' }
 }
-if ($SkyAudit -or $SkyMode -ne 'baseline') {
-    Write-Host "Sky investigation: mode=$SkyMode; trace=$SkyAudit; from frame=$SkyFromFrame"
+if ($SkyAudit -or $SkyMode -ne 'baseline' -or $GraphicsAudit) {
+    Write-Host "Graphics investigation: mode=$SkyMode; sky trace=$SkyAudit; draw trace=$GraphicsAudit; sky frame=$SkyFromFrame; draw frame=$GraphicsFromFrame; shader=$GraphicsShaderHash"
 }
 $log = Join-Path $run 'stderr.log'
 Write-Host "Isolated test: $run"
