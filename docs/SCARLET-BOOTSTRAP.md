@@ -399,3 +399,11 @@ guest-heap lifecycle/free semantics.
 The development environment has no access to the user's D: drive, NSP
 contents, Windows 11 installation or Vulkan graphics driver. Do not
 interpret a CI pass or AOT output as a playable game.
+
+## 2026-10-30: confirmed opt-in bootstrap session, native launcher toggle
+
+A user-supervised **Windows 11 Scarlet 4.0.0** test launched the already-built `scarlet.exe` with both `SCARLET_EARLY_TLS_PROBE=1` and `SCARLET_BOOTSTRAP_ALLOCATOR=1`, `SCARLET_MAIN_INIT_FIRST` unset, and target 30 FPS. The user reported the game opened normally. The submitted console output records approximately 190 seconds of execution, Vulkan frame 4399, ~30 FPS during most reported intervals, 27 guest threads and ~5.4 GB process memory. It ended with `window closed` and process exit code 0. These observations confirm an extended render session, **not stable allocator semantics or save safety**.
+
+To avoid setting shell environment variables manually each test, the development Win32 launcher now has a clearly labeled **Inicialização experimental / Experimental startup** opt-in checkbox on its JOGO / GAME page. It defaults **off**, persists per-user under `[Game] experimental_bootstrap=1` only when chosen, and injects both temporary boot flags solely while creating the Scarlet child process. It explicitly clears `SCARLET_MAIN_INIT_FIRST` from that child and restores the launcher's preexisting environment immediately afterward. The visible label and status note are localized into Brazilian Portuguese, English, Spanish, and French; the launcher logs when the experimental option is active.
+
+To rebuild the launcher and runtime only, using the existing AOT library and importer: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1 -SkipImporter`. Then start `scarlet.exe`, enable the option manually, and select **JOGAR**. This is a **developer workaround** for the current incomplete allocator/bootstrap, not a production fix; leave it off for stable releases and replace it with correct SDK TLS/malloc ownership, allocation/free/realloc handling, and audited initialization ordering before distribution. No Windows compile/gameplay regression was run in the GitHub editing environment after adding the checkbox.

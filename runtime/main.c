@@ -14,6 +14,32 @@
 #include "platform.h"
 #include "gamebuild.h"  // (gamelib_old_cpu)
 #include <stdio.h>
+#if defined(SCARLET_AOT) && defined(_WIN32)
+#include <windows.h>
+#include <wchar.h>
+// Exact Scarlet PC native Win32/GDI+ launcher lives next to scarlet.exe.
+// Spawn it on normal double-click BEFORE initializing any game/Vulkan state.
+static int scarlet_launch_original_ui(void) {
+    wchar_t program[4096] = {};
+    DWORD n = GetModuleFileNameW(NULL, program, (DWORD)(sizeof program / sizeof program[0]));
+    if (!n || n >= (DWORD)(sizeof program / sizeof program[0] - 32)) return 4;
+    wchar_t *sep = wcsrchr(program, L'\\');
+    if (!sep) return 4;
+    wcscpy(sep + 1, L"ScarletLauncher.exe");
+    STARTUPINFOW si = {0};
+    PROCESS_INFORMATION pi = {0};
+    si.cb = sizeof si;
+    if (!CreateProcessW(program, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        MessageBoxW(NULL,
+            L"ScarletLauncher.exe não encontrado. Compile o launcher nativo.",
+            L"Scarlet", MB_OK | MB_ICONERROR);
+        return 4;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 0;
+}
+#endif
 #if defined(__x86_64__) || defined(__i386__)
 #include <cpuid.h>
 #endif
@@ -290,32 +316,47 @@ static void teardown(void) {
     LOG("[reboot] game torn down in %llums (%d reset hooks)\n", (unsigned long long)((plat_now_ns() - t0) / 1000000), n);
 }
 
-// Scarlet 4.0.0: adapted from the v4.0.0 60FPS community frame-duration
-// constant (MAIN+0x03c2fbb0: 33333334ns -> 16666667ns). The other community
-// write targets an uncommitted guest region in this AOT runtime, so we DO NOT
-// blindly write there; NVN interval is changed through our host window hook.
-// Guard by actual module memory size and the original 30Hz value.
-bool g_scarlet_native_fps60;
+// Scarlet 4.0.0 frame-duration experiment. The 60Hz constant at
+// MAIN+0x03c2fbb0 was previously validated by the community patch. 120/240
+// are scaled candidates only, and require gameplay/simulation validation.
+// Do not touch the unrelated uncommitted guest memory at MAIN+0x05befce4.
+int g_scarlet_target_fps = 30;
+bool g_scarlet_native_fps60;  // compatibility with legacy diagnostics
 static void scarlet_fps60_setup(void) {
+    g_scarlet_target_fps = 30;
     g_scarlet_native_fps60 = false;
 #ifdef SCARLET_AOT
-    const char *e = getenv("SCARLET_FPS60");
-    if (!e || strcmp(e, "1") != 0) return;
+    const char *requested = getenv("SCARLET_TARGET_FPS");
+    int target = requested ? atoi(requested) :
+        (getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1") ? 60 : 30);
+    if (target != 30 && target != 60 && target != 120 && target != 240) {
+        LOG("[scarlet-fps] unsupported FPS setting %d; falling back to 30\n",target);
+        target = 30;
+    }
+    if (target == 30) {
+        LOG("[scarlet-fps] native target 30 FPS (baseline)\n");
+        return;
+    }
     if (g_program_id != 0x0100a3d008c5c000ull || !g_nmodules ||
         g_modules[0].base != MAIN_BASE ||
         g_modules[0].size < 0x03c2fbb0ull + sizeof(uint32_t)) {
-        LOG("[scarlet-fps60] unsafe module/program for 60Hz patch; left at 30\n");
+        LOG("[scarlet-fps] unknown program/module; requested %d FPS not applied\n",target);
         return;
     }
     uint32_t *ns = (uint32_t *)(uintptr_t)(MAIN_BASE + 0x03c2fbb0ull);
     const uint32_t before = *ns;
-    if (before != 0x01fca056u && before != 0x00fe502bu) {
-        LOG("[scarlet-fps60] frame duration unexpected: 0x%08x (expected 0x01fca056); 60Hz disabled\n", before);
+    if (before != 33333334u && before != 16666667u &&
+        before != 8333333u && before != 4166667u) {
+        LOG("[scarlet-fps] unexpected frame period %#x; keeping 30 FPS\n",before);
         return;
     }
-    *ns = 0x00fe502bu;
-    g_scarlet_native_fps60 = true;
-    LOG("[scarlet-fps60] 4.0.0 native experimental: 33333334 -> 16666667 ns; Vulkan interval 1. Validate world/animations/battle speed.\n");
+    const uint32_t period = target == 60 ? 16666667u :
+                            target == 120 ? 8333333u : 4166667u;
+    *ns = period;
+    g_scarlet_target_fps = target;
+    g_scarlet_native_fps60 = target >= 60;
+    LOG("[scarlet-fps] requested %d FPS, period %u ns, NVN interval %d; 120/240 experimental\n",
+        target,period,target <= 60 ? 1 : 0);
 #endif
 }
 
@@ -402,6 +443,13 @@ static void log_startup_info(void) {
 }
 
 int main(int argc, char **argv) {
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // The Win32 launcher has the original Scarlet PC GDI+ layout and
+    // is separate from the game. "--play" always skips this step.
+    if (argc == 1 && !getenv("LARECOMP_INPUT") &&
+        !getenv("LARECOMP_HOST_INPUT") && !getenv("LARECOMP_REEXEC"))
+        return scarlet_launch_original_ui();
+#endif
     plat_init();
     log_startup_info();
     if (getenv("LARECOMP_REEXEC")) {  // (reserve_guest_space started this process again)
@@ -497,12 +545,9 @@ int main(int argc, char **argv) {
 #endif
             extern void launcher_run(const char *root);
             launcher_run(root);
-#ifdef SCARLET_AOT
-            // The standalone Scarlet launcher imports to an isolated selected
-            // game root. --play test runs still honour their explicit root.
-            extern const char *scarlet_launcher_game_root(void);
-            root = scarlet_launcher_game_root();
-#endif
+// Scarlet's original Win32 launcher is a separate process. It starts
+// scarlet.exe with --play and an explicit extracted root; there is no
+// in-game Scarlet launcher root to query here.
         }
         boot(root);
         int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested

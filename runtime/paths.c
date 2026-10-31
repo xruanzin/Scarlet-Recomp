@@ -785,8 +785,25 @@ void rt_paths_restart(void) {
 
 // Window / Dock icon: icon.png shipped next to the exe or in the .app (none for a plain source build).
 void rt_window_icon(SDL_Window *w) {
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // Use the same versioned RT_GROUP_ICON #1 that Windows Explorer displays
+    // for scarlet.exe. This prevents a stale ZA icon.png from overriding the
+    // Scarlet taskbar / window icon after the native Vulkan window opens.
+    HWND hwnd = (HWND)SDL_GetPointerProperty(SDL_GetWindowProperties(w),
+                                              SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+    if (hwnd) {
+        HINSTANCE inst = GetModuleHandleW(NULL);
+        HICON small = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1),
+                                         IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+        HICON large = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1),
+                                         IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+        if (small) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)small);
+        if (large) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)large);
+    }
+#else
     char p[1100];
     if (!rt_resource("icon.png", NULL, p, sizeof p)) return;
     SDL_Surface *s = SDL_LoadPNG(p);
     if (s) SDL_SetWindowIcon(w, s), SDL_DestroySurface(s);
+#endif
 }
