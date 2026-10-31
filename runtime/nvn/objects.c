@@ -1,5 +1,6 @@
 // NVN objects, builders, and state objects (everything except command recording).
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -473,6 +474,10 @@ NVN(nvnTextureInitialize) {
     if (t->flags & 2)
         LOG("[nvn] video texture %p: %ux%u fmt %#x flags %#x target %u addr %llx stride %llu\n", t, t->width, t->height,
             t->format, t->flags, t->target, t->addr, t->stride);
+    if (t->format == 0x42 && t->width == 1440 && t->height == 864 && ENV("SCARLET_PORTRAIT_TRACE"))
+        LOG("[portrait] BC1 source created: tex=%p addr=%llx flags=%#x levels=%u stride=%llu storage=%llu bytes\n",
+            (void *)t, (unsigned long long)t->addr, t->flags, t->levels,
+            (unsigned long long)t->stride, (unsigned long long)tegra_total_size(&t->layout));
     SET_HOST(A(0), t);
     RET(1);
 }
@@ -547,7 +552,28 @@ NVN(nvnTextureViewGetDepthStencilMode) { NvnTextureView *v = AP(0); *(uint32_t *
 NVN(nvnTextureViewGetTarget) { NvnTextureView *v = AP(0); *(uint32_t *)AP(1) = v->target; RET(!!(v->setmask & 32)); }
 NVN(nvnTextureViewCompare) { RET(memcmp(AP(0), AP(1), 0x1C) == 0); }
 
+// Opt-in portrait provenance: report if Scarlet calls an NVN texel API
+// that the inherited host does not yet implement. The 1920x1080 source
+// may be read before compression into the 1440x864 BC1 portrait.
+// No texture data is changed or copied to the log.
+static void portrait_texel_call(Cpu *c, const char *op, bool read) {
+    if (!ENV("SCARLET_PORTRAIT_TRACE")) return;
+    static _Atomic unsigned read_count, write_count;
+    const unsigned n = atomic_fetch_add(read ? &read_count : &write_count, 1);
+    if (n >= 80) return;
+    NvnTexture *t = A(0) ? HOST(NvnTexture, A(0)) : NULL;
+    if (!t) return;
+    if (!read && !(t->format == 0x42 && t->width == 1440 && t->height == 864)) return;
+    const int32_t *region = A(2) ? AP(2) : NULL;
+    LOG("[portrait] %s %s: tex=%p fmt=%#x %ux%u addr=%llx region=%d,%d %dx%d data=%llx row=%llu image=%llu\n",
+        op, read ? "(read)" : "(write)", (void *)t, t->format, t->width, t->height,
+        (unsigned long long)t->addr, region ? region[0] : 0, region ? region[1] : 0,
+        region ? region[3] : 0, region ? region[4] : 0,
+        (unsigned long long)A(3), (unsigned long long)A(4), (unsigned long long)A(5));
+}
+
 NVN(nvnTextureWriteTexels) {
+    portrait_texel_call(c, "WriteTexels", false);
     // (texture, view, region, data) -- linear data into block-linear storage
     NvnTexture *t = HOST(NvnTexture, A(0));
     const int32_t *r = AP(2);  // xoffset, yoffset, zoffset, width, height, depth
@@ -560,9 +586,20 @@ NVN(nvnTextureWriteTexels) {
         LOG("[nvn] partial WriteTexels not implemented\n");
     }
 }
-NVN(nvnTextureWriteTexelsStrided) { LOG("[nvn] WriteTexelsStrided not implemented\n"); (void)c; }
-NVN(nvnTextureReadTexels) { LOG("[nvn] ReadTexels not implemented\n"); (void)c; }
-NVN(nvnTextureReadTexelsStrided) { (void)c; static int seen_; if (!seen_++ && ENV("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnTextureReadTexelsStrided\n"); }
+NVN(nvnTextureWriteTexelsStrided) {
+    portrait_texel_call(c, "WriteTexelsStrided_UNIMPLEMENTED", false);
+    LOG("[nvn] WriteTexelsStrided not implemented\n");
+}
+NVN(nvnTextureReadTexels) {
+    portrait_texel_call(c, "ReadTexels_UNIMPLEMENTED", true);
+    LOG("[nvn] ReadTexels not implemented\n");
+}
+NVN(nvnTextureReadTexelsStrided) {
+    portrait_texel_call(c, "ReadTexelsStrided_UNIMPLEMENTED", true);
+    static int seen_;
+    if (!seen_++ && ENV("LARECOMP_LOG_NOOP"))
+        LOG("[nvn] no-op called: nvnTextureReadTexelsStrided\n");
+}
 
 // ================================================================== samplers
 // SamplerBuilder: device@0 then an NvnSamplerDesc at 8
