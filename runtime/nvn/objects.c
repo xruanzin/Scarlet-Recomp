@@ -558,12 +558,16 @@ NVN(nvnTextureViewCompare) { RET(memcmp(AP(0), AP(1), 0x1C) == 0); }
 // No texture data is changed or copied to the log.
 static void portrait_texel_call(Cpu *c, const char *op, bool read) {
     if (!ENV("SCARLET_PORTRAIT_TRACE")) return;
+    NvnTexture *t = A(0) ? HOST(NvnTexture, A(0)) : NULL;
+    if (!t) return;
+    const bool portrait = t->format == 0x42 && t->width == 1440 && t->height == 864;
+    // Reads can originate from the scene's full-size GPU image before BC1
+    // compression. Ignore unrelated small textures to keep the log bounded.
+    if (read ? (!portrait && !(t->width >= 1280 && t->height >= 720)) : !portrait)
+        return;
     static _Atomic unsigned read_count, write_count;
     const unsigned n = atomic_fetch_add(read ? &read_count : &write_count, 1);
     if (n >= 80) return;
-    NvnTexture *t = A(0) ? HOST(NvnTexture, A(0)) : NULL;
-    if (!t) return;
-    if (!read && !(t->format == 0x42 && t->width == 1440 && t->height == 864)) return;
     const int32_t *region = A(2) ? AP(2) : NULL;
     LOG("[portrait] %s %s: tex=%p fmt=%#x %ux%u addr=%llx region=%d,%d %dx%d data=%llx row=%llu image=%llu\n",
         op, read ? "(read)" : "(write)", (void *)t, t->format, t->width, t->height,
