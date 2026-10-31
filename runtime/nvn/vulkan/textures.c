@@ -1225,8 +1225,40 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     }
 }
 
+// Diagnostic only: confirm whether the BC1 texture used as Scarlet's
+// enrollment photo is empty in guest memory before it is uploaded to Vulkan.
+// A GPU image that is black but a populated guest buffer suggests an upload
+// or format issue; both black suggests that the game's producer never filled it.
+// The sampled bytes are never emitted; this cannot expose the portrait data.
+// SCARLET_PORTRAIT_TRACE=1, bounded to 48 snapshots per process.
+static void scarlet_portrait_memory_trace(NvnTexture *t, const TexBackend *b, const char *when) {
+    if (!t || t->format != 0x42 || t->width != 1440 || t->height != 864) return;
+    static int on = -1;
+    if (on < 0) on = ENV("SCARLET_PORTRAIT_TRACE") != NULL;
+    if (!on) return;
+    static _Atomic unsigned count;
+    if (atomic_fetch_add(&count, 1) >= 48) return;
+    uint64_t total = tegra_total_size(&t->layout);
+    uint64_t bytes = total < (1ull << 20) ? total : (1ull << 20);
+    uint64_t nonzero = 0, fingerprint = 1469598103934665603ull;
+    if (t->addr && bytes) {
+        const uint8_t *data = (const uint8_t *)(uintptr_t)t->addr;
+        for (uint64_t i = 0; i < bytes; ++i) {
+            nonzero += data[i] != 0;
+            fingerprint = (fingerprint ^ data[i]) * 1099511628211ull;
+        }
+    }
+    LOG("[portrait] BC1 source %s: tex=%p addr=%llx bytes=%llu/%llu nonzero=%llu hash=%016llx "
+        "gpu_owned=%d uploaded=%d pending=%d image=%p\n",
+        when, (void *)t, (unsigned long long)t->addr,
+        (unsigned long long)bytes, (unsigned long long)total,
+        (unsigned long long)nonzero, (unsigned long long)fingerprint,
+        (int)b->gpu_owned, (int)b->uploaded, (int)(b->pending_rgba != NULL), (void *)b->image);
+}
+
 TexBackend *vk_tex(NvnTexture *t, bool for_render) {
     TexBackend *b = tex_backend(t);
+    if (!for_render) scarlet_portrait_memory_trace(t, b, "before");
     if (b->pending_rgba) upload_pending(b);
     if (for_render) b->gpu_owned = true;
     else if (!b->gpu_owned) {
@@ -1235,6 +1267,7 @@ TexBackend *vk_tex(NvnTexture *t, bool for_render) {
         upload_texture(t, b);
         if (prof_up_ns != ~0ull) prof_up_ns += SDL_GetTicksNS() - t0;
     }
+    if (!for_render) scarlet_portrait_memory_trace(t, b, "after");
     return b;
 }
 
