@@ -7362,6 +7362,52 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
         if (!t) { LOG("[draw]   tex%d: none\n", i); continue; }
         LOG("[draw]   tex%d: %p %ux%u f%#x lv %u -> %ux%u scale %.4f %.4f%s\n", i, (void *)t, t->width, t->height, t->format,
             b ? b->levels : 0, b ? b->width : 0, b ? b->height : 0, b ? b->sx : 0, b ? b->sy : 0, b && b->scalable ? " scalable" : "");
+        // Scarlet's enrollment form samples an opaque black 1440x864 BC1 texture.
+        // Capture the *CPU-side* contents only on F9, on explicit request.
+        // This lets us distinguish a never-populated source from a Vulkan
+        // upload/deswizzle error without touching normal gameplay or startup.
+        if (t->format == 0x42 && t->width == 1440 && t->height == 864 &&
+            t->addr && ENV("SCARLET_PORTRAIT_TRACE")) {
+            static bool photographed;
+            if (!photographed) {
+                photographed = true;
+                LevelLayout lv = tegra_level(&t->layout, 0);
+                size_t block_bytes = (size_t)lv.wb * lv.hb * t->layout.fmt->bpb;
+                if (lv.d == 1 && t->layout.fmt->bpb == 8 && block_bytes && block_bytes <= 4 * 1024 * 1024) {
+                    uint8_t *linear = malloc(block_bytes);
+                    if (linear) {
+                        const uint8_t *raw = (const uint8_t *)(uintptr_t)t->addr + lv.offset;
+                        size_t pitch = (size_t)lv.wb * 8;
+                        if (t->flags & 0x10) {
+                            for (uint32_t y = 0; y < lv.hb; y++)
+                                memcpy(linear + y * pitch, raw + (uint64_t)y * t->stride, pitch);
+                        } else {
+                            tegra_deswizzle(raw, linear, lv.wb, lv.hb, 1, 8, lv.block_height_log2, lv.block_depth_log2);
+                        }
+                        uint64_t fingerprint = 1469598103934665603ull;
+                        size_t nonzero = 0;
+                        for (size_t k = 0; k < block_bytes; k++) {
+                            fingerprint = (fingerprint ^ linear[k]) * 1099511628211ull;
+                            nonzero += linear[k] != 0;
+                        }
+                        SDL_CreateDirectory("build");
+                        SDL_CreateDirectory("build/scarlet-focus");
+                        const char *name = "build/scarlet-focus/portrait_bc1_guest_linear_1440x864.bin";
+                        FILE *fp = fopen(name, "wb");
+                        size_t written = 0;
+                        if (fp) { written = fwrite(linear, 1, block_bytes, fp); fclose(fp); }
+                        LOG("[scarlet-portrait] F9 guest BC1 %ux%u tex=%p addr=%llx flags=%#x "
+                            "blocks=%ux%u, %zu/%zu bytes saved, nonzero=%zu fingerprint=%016llx "
+                            "gpu_owned=%d uploaded=%d dynamic=%d data_hash=%016llx -> %s\n",
+                            t->width, t->height, (void *)t, (unsigned long long)t->addr, t->flags,
+                            lv.wb, lv.hb, written, block_bytes, nonzero, (unsigned long long)fingerprint,
+                            b ? b->gpu_owned : -1, b ? b->uploaded : -1, b ? b->dynamic : -1,
+                            (unsigned long long)(b ? b->data_hash : 0), name);
+                        free(linear);
+                    }
+                }
+            }
+        }
         if (t->format == 0x1 && t->width >= 256 && t->addr) {  // (R8 atlases, e.g. a glyph cache: guest bytes vs the GPU copy)
             const uint8_t *g = (const uint8_t *)(uintptr_t)t->addr;
             uint64_t n = (uint64_t)t->width * t->height, nz = 0;
