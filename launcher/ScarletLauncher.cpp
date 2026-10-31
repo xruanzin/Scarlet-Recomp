@@ -85,6 +85,7 @@ enum ControlId : int {
     ID_OPEN_USER,
     ID_OPEN_LOGS,
     ID_CLOSE_ON_LAUNCH,
+    ID_EXPERIMENTAL_BOOTSTRAP,
 
     ID_PLAY = 900,
 };
@@ -168,6 +169,7 @@ HWND g_auto_controller{};
 
 HWND g_language{};
 HWND g_close_on_launch{};
+HWND g_experimental_bootstrap{};
 
 // Additional user-picked NSP/XCI and folders: no slot or count limit.
 std::vector<std::wstring> g_dlcs;
@@ -564,6 +566,8 @@ void ApplyLanguage() {
           L"+ AÑADIR CARPETA",L"+ AJOUTER DOSSIER");
     label(ID_DLC_REMOVE,L"REMOVER",L"REMOVE",L"QUITAR",L"RETIRER");
     label(ID_OPEN_LOGS,L"ABRIR LOGS",L"OPEN LOGS",L"VER REGISTROS",L"OUVRIR JOURNAUX");
+    label(ID_EXPERIMENTAL_BOOTSTRAP,L"Inicialização experimental",
+          L"Experimental startup",L"Inicio experimental",L"Démarrage expérimental");
     RefreshStatus();
     InvalidateRect(g_main,nullptr,FALSE);
 }
@@ -600,6 +604,7 @@ void SaveSettings() {
     IniWrite(L"Game",L"target_fps",std::to_wstring(kScarletNativeFpsValues[
         std::clamp(ComboSelection(g_fps),0,3)]));
     IniWriteInt(L"General",L"language",g_language_index);
+    IniWriteInt(L"Game",L"experimental_bootstrap",Checked(g_experimental_bootstrap)?1:0);
     std::ofstream f(g_ini_path.parent_path()/L"scarlet_extra_packages.txt",
                     std::ios::binary|std::ios::trunc);
     for (const auto& p:g_dlcs) f << "F" << Utf8(p) << "\n";
@@ -637,6 +642,8 @@ void LoadSettings() {
                       (int)(selected-kScarletNativeFpsValues.begin()));
     g_language_index=std::clamp(IniReadInt(L"General",L"language",0),0,3);
     SetComboSelection(g_language,g_language_index);
+    SendMessageW(g_experimental_bootstrap,BM_SETCHECK,
+        IniReadInt(L"Game",L"experimental_bootstrap",0) ? BST_CHECKED : BST_UNCHECKED,0);
     ApplyLanguage();
 }
 
@@ -834,6 +841,45 @@ static void SetNativeFpsEnvironment() {
     SetEnvironmentVariableW(L"SCARLET_FPS60",target>=60?L"1":L"0");
 }
 
+// Save and restore the launcher's original environment. Only the child
+// Scarlet process receives these opt-in diagnostics, never unrelated games or
+// subsequent child processes. The normal (unchecked) path explicitly clears
+// stale inherited test variables for the child.
+struct ScopedScarletBootEnvironment {
+    struct Saved { std::wstring name, value; bool present=false; };
+    std::array<Saved,3> saved;
+    explicit ScopedScarletBootEnvironment(bool enabled) {
+        const std::array<const wchar_t*,3> names{{
+            L"SCARLET_EARLY_TLS_PROBE",
+            L"SCARLET_BOOTSTRAP_ALLOCATOR",
+            L"SCARLET_MAIN_INIT_FIRST"
+        }};
+        for (size_t i=0; i<names.size(); ++i) {
+            saved[i].name=names[i];
+            const DWORD required=GetEnvironmentVariableW(names[i],nullptr,0);
+            if (required > 0) {
+                std::wstring value(required,L'\0');
+                DWORD length=GetEnvironmentVariableW(names[i],value.data(),required);
+                if (length < required) {
+                    value.resize(length);
+                    saved[i].value=std::move(value);
+                    saved[i].present=true;
+                }
+            }
+        }
+        SetEnvironmentVariableW(names[0],enabled?L"1":nullptr);
+        SetEnvironmentVariableW(names[1],enabled?L"1":nullptr);
+        SetEnvironmentVariableW(names[2],nullptr);
+    }
+    ~ScopedScarletBootEnvironment() {
+        for (const auto& old:saved)
+            SetEnvironmentVariableW(old.name.c_str(),
+                                   old.present?old.value.c_str():nullptr);
+    }
+    ScopedScarletBootEnvironment(const ScopedScarletBootEnvironment&) = delete;
+    ScopedScarletBootEnvironment& operator=(const ScopedScarletBootEnvironment&) = delete;
+};
+
 static void StartNativeGame() {
     if (!Installed()) {
         MessageBoxW(g_main,Tr(L"Jogo não preparado.",L"Game not prepared.",
@@ -890,9 +936,18 @@ static void StartNativeGame() {
         si.hStdInput=input;
     }
     PROCESS_INFORMATION pi{};
-    const BOOL started=CreateProcessW(runtime.c_str(),args.data(),nullptr,nullptr,
-                                     redirect,0,nullptr,g_exe_dir.c_str(),&si,&pi);
-    const DWORD startError=started?ERROR_SUCCESS:GetLastError();
+    const bool experimental=Checked(g_experimental_bootstrap);
+    BOOL started=FALSE;
+    DWORD startError=ERROR_SUCCESS;
+    {
+        ScopedScarletBootEnvironment launchEnvironment(experimental);
+        started=CreateProcessW(runtime.c_str(),args.data(),nullptr,nullptr,
+                               redirect,0,nullptr,g_exe_dir.c_str(),&si,&pi);
+        startError=started?ERROR_SUCCESS:GetLastError();
+    }
+    LauncherLog(experimental ?
+        "Game launch: experimental Scarlet TLS + bootstrap allocator enabled (diagnostic only)" :
+        "Game launch: experimental Scarlet bootstrap disabled");
     if (output!=INVALID_HANDLE_VALUE) CloseHandle(output);
     if (input!=INVALID_HANDLE_VALUE) CloseHandle(input);
     if (!started) {
@@ -978,6 +1033,8 @@ void CreateGamePage() {
     g_fps=MakeCombo(Game,ID_FPS,300,608,268,132,kScarletNativeFps,0);
     MakeButton(Game,ID_OPEN_LOGS,28,280,205,44,L"ABRIR LOGS");
     g_language=MakeCombo(Game,ID_LANGUAGE,28,397,205,160,kLanguages,0);
+    g_experimental_bootstrap=MakeCheckbox(Game,ID_EXPERIMENTAL_BOOTSTRAP,
+                                         28,476,205,64,L"Inicialização experimental",false);
 }
 
 void CreateGraphicsPage() {
@@ -1182,6 +1239,12 @@ void DrawBackground(HWND hwnd, HDC hdc) {
                         PointF(300.0f, 579.0f), &text_brush);
     graphics.DrawString(Tr(L"IDIOMA",L"LANGUAGE",L"IDIOMA",L"LANGUE"), -1, &label,
                         PointF(28.0f, 365.0f), &text_brush);
+    Gdiplus::Font experimental_note(&family, 13.0f, FontStyleRegular, UnitPixel);
+    graphics.DrawString(Tr(L"TLS + alocador provisório",
+                           L"Temporary TLS + allocator",
+                           L"TLS y asignador temporal",
+                           L"TLS et allocateur provisoires"), -1, &experimental_note,
+                        PointF(29.0f, 554.0f), &muted);
 
     SolidBrush status_panel(Color(255, 36, 28, 38));
     graphics.FillRectangle(&status_panel, 592, 607, 531, 35);
@@ -1295,6 +1358,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (HIWORD(wparam) == EN_CHANGE && id == ID_GAME_EDIT &&
             !g_importing.load()) RefreshStatus();
         if (HIWORD(wparam) == CBN_SELCHANGE && id == ID_FPS) SaveSettings();
+        if (HIWORD(wparam) == BN_CLICKED && id == ID_EXPERIMENTAL_BOOTSTRAP)
+            SaveSettings();
         if (HIWORD(wparam) == CBN_SELCHANGE && id == ID_LANGUAGE) {
             g_language_index=std::clamp(ComboSelection(g_language),0,3);
             SaveSettings();
