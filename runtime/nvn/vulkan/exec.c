@@ -1392,6 +1392,25 @@ static VkFormat pass_color[8], pass_depth, pass_stencil;
 static uint32_t pass_ncolor, pass_samples = 1, pass_w, pass_h, pass_layers = 1;
 static int debug_pass_no;
 static RtState debug_pass_rt;  // attachments actually begun; st.rt may already name the next pass
+
+// The photo source is a 1440x864 BC1 image. Track its *GPU producer* only
+// with explicit opt-in: zero CPU backing is expected for a GPU-owned texture.
+static bool scarlet_portrait_target(const NvnTexture *t) {
+    return t && t->format == 0x42 && t->width == 1440 && t->height == 864 &&
+           ENV("SCARLET_PORTRAIT_TRACE") != NULL;
+}
+static void scarlet_portrait_producer(const char *kind, const NvnTexture *dst,
+                                      const NvnTexture *src, uint64_t buffer_addr) {
+    if (!scarlet_portrait_target(dst)) return;
+    static int nlog;
+    if (nlog++ >= 32) return;
+    LOG("[scarlet-portrait-source] frame %llu %s dst=%p guest=%llx "
+        "src_texture=%p source=%s buf=%llx\n",
+        (unsigned long long)renderer_present_count(), kind, (void *)dst,
+        (unsigned long long)dst->addr, (void *)src,
+        src ? "texture" : buffer_addr ? "buffer" : "render-target",
+        (unsigned long long)buffer_addr);
+}
 // (draw_indirect) the draw being made reads its parameters on the GPU: offset in the guest memory window's buffer
 static bool g_ind_gpu;
 static VkDeviceSize g_ind_off;
@@ -1580,6 +1599,7 @@ static void begin_pass(void) {
         ca[i] = (VkRenderingAttachmentInfo){.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         pass_color[i] = VK_FORMAT_UNDEFINED;
         if (!t) continue;
+        scarlet_portrait_producer("render-attachment", t, NULL, 0);
         renderer_mark_gpu_owned(t);
         uint32_t nly;
         VkImageView v = vk_render_view(t, &st.rt.cview[i], st.rt.has_cview[i], &nly);
@@ -7405,6 +7425,11 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
                             b ? b->gpu_owned : -1, b ? b->uploaded : -1, b ? b->dynamic : -1,
                             (unsigned long long)(b ? b->data_hash : 0), name);
                         free(linear);
+                        if (b && b->image) {
+                            const char *gpu_png = "build/scarlet-focus/portrait_bc1_vulkan_1440x864.png";
+                            renderer_save_texture_tex((TexBackend *)b, gpu_png);
+                            LOG("[scarlet-portrait] F9 actual Vulkan image -> %s\n", gpu_png);
+                        }
                     }
                 }
             }
@@ -7580,6 +7605,7 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     snap_reason = "buf2tex"; snapshots_invalidate(NULL);
     NvnTexture *t = (NvnTexture *)(uintptr_t)dst->tex;
     if (!t || !src) return;
+    scarlet_portrait_producer("buffer-to-texture", t, NULL, src);
     alias_before_write(t, 0, "upload");
     vk_end_pass();
     const FormatInfo *fi;
@@ -7769,6 +7795,7 @@ static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t fl
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
     NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
     if (!st_ || !dt) return;
+    scarlet_portrait_producer("texture-to-texture", dt, st_, 0);
     vk_end_pass();
     if (dl_on == 2) renderer_flush();  // (LARECOMP_VK_DEVLOST_TRACE=2: each copy its own submission, waited on)
     gp_mark(vk_cmd(), "copy texture %ux%u -> %ux%u", st_->width, st_->height, dt->width, dt->height);
