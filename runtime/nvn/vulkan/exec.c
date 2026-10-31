@@ -1,5 +1,6 @@
 // Executes recorded NVN command lists with Vulkan (port of renderer.m; same structure, same behaviour).
 #include <SDL3/SDL_cpuinfo.h>
+#include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_timer.h>
 #include <float.h>
 #include <math.h>
