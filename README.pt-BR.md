@@ -37,6 +37,25 @@ Os recursos acima descrevem implementações em desenvolvimento, **não um teste
 
 **Não incluir em commits nem em releases públicos:** NSP/XCI, dados extraídos, prod.keys, title.keys, tickets, saves ou `lasgame.dll` derivada do jogo.
 
+## Downloads oficiais e dependências
+
+- [Microsoft Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe) — somente se o sistema solicitar
+- [Driver NVIDIA](https://www.nvidia.com/Download/index.aspx) ou [driver AMD](https://www.amd.com/en/support/download/drivers.html) — atualizar o suporte a Vulkan
+- [Python](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) e [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — para **compilação/geração AOT**, não para executar o launcher já compilado
+- [Requisitos completos e créditos](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
+
+O objetivo é que o pacote venha com as bibliotecas redistribuíveis e o importador prontos, mas **ainda não é possível jogar apenas com o ZIP de runtime**: a `lasgame.dll` é derivada do jogo e requer geração local a partir da sua própria cópia do Scarlet.
+
+## Empacotamento para distribuição
+
+O mantenedor pode gerar o ZIP seguro na máquina Windows após compilar os executáveis:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\create_release_zip.ps1
+```
+
+Esse pacote não inclui keys, NSP/XCI, saves nem `lasgame.dll`. Ele deve ser testado e revisado quanto às licenças antes da publicação.
+
 ## Compilação de desenvolvimento
 
 O script incremental abaixo exige que a AOT já tenha sido produzida no computador:
