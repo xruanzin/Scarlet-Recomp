@@ -191,6 +191,12 @@ static void scarlet_bootstrap_allocator_probe(Cpu *c) {
  // the main initializer may itself depend on SDK initialization.
 static bool scarlet_main_init_early;
 static bool scarlet_probe_enabled(const char *name) {
+#ifdef SCARLET_AOT
+    // Main-before-SDK initialization caused startup crashes in Scarlet 4.0.0.
+    // Keep that A/B experiment confined to diagnostic builds, even when the
+    // user's environment still has the old SCARLET_MAIN_INIT_FIRST=1.
+    if (!strcmp(name, "SCARLET_MAIN_INIT_FIRST")) return false;
+#endif
     const char *v = getenv(name);
     return g_program_id == 0x0100a3d008c5c000ull && v && *v && strcmp(v, "0");
 }
