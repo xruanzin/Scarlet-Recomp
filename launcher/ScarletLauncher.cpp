@@ -50,6 +50,7 @@ constexpr int kWindowWidth = 1280;
 constexpr int kWindowHeight = 760;
 constexpr UINT kGameExitedMessage = WM_APP + 1;
 constexpr UINT kImportFinishedMessage = WM_APP + 2;
+constexpr UINT kAotPreparingMessage = WM_APP + 3;
 
 enum ControlId : int {
     ID_TAB_GAME = 100,
@@ -176,6 +177,7 @@ struct PackageItem { std::wstring label; int kind; size_t index; };
 std::vector<PackageItem> g_visible_packages;
 std::wstring g_status_text;
 std::atomic<bool> g_importing{false};
+std::atomic<bool> g_aot_preparing{false};
 std::wstring g_import_error;
 int g_language_index = 0;
 int g_import_percent = 0;
@@ -530,7 +532,12 @@ void RefreshDlcList() {
 
 void RefreshStatus() {
     const auto packages=PackageFiles(GetText(g_game_edit));
-    if (g_importing.load()) g_status_text=Tr(
+    if (g_aot_preparing.load()) g_status_text=Tr(
+        L"Compilando jogo para seu PC (primeira vez pode demorar)",
+        L"Compiling game for your PC (first run may take a while)",
+        L"Compilando el juego para su PC",
+        L"Compilation du jeu pour votre PC");
+    else if (g_importing.load()) g_status_text=Tr(
         L"Extraindo arquivos, aguarde", L"Extracting files, please wait",
         L"Extrayendo archivos, espere", L"Extraction des fichiers, patientez");
     else if (packages.empty()) g_status_text=Tr(
@@ -832,8 +839,11 @@ static bool PrepareLocalAot(std::wstring* error) {
     const fs::path log=logdir / L"scarlet-aot.log";
     DWORD status=1;
     LauncherLog("Preparing Scarlet AOT locally from the player's updated ExeFS");
+    PostMessageW(g_main,kAotPreparingMessage,1,0);
     const std::wstring args=L"--prepare-aot " + QuoteArg(InstalledRoot().wstring());
-    if (!RunProcess(runtime,args,log,&status) || status!=0) {
+    const bool ok=RunProcess(runtime,args,log,&status) && status==0;
+    PostMessageW(g_main,kAotPreparingMessage,0,0);
+    if (!ok) {
         LauncherLog("AOT setup failed; inspect user/log/scarlet-aot.log");
         *error=L"Não foi possível gerar o código AOT do jogo. Abra LOGS "
                L"e consulte scarlet-aot.log. Os arquivos originais foram preservados.";
@@ -1381,6 +1391,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         EndPaint(hwnd, &ps);
         return 0;
     }
+
+    case kAotPreparingMessage:
+        g_aot_preparing.store(wparam != 0);
+        RefreshStatus();
+        return 0;
 
     case kImportFinishedMessage: {
         g_importing.store(false);
