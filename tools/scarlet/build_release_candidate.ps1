@@ -19,14 +19,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Scarlet Windows build failed; release package 
 $env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
 $make = Get-Command make.exe -ErrorAction SilentlyContinue
 $bash = Get-Command bash.exe -ErrorAction SilentlyContinue
-if (!(Test-Path -LiteralPath (Join-Path $root 'build\helper\lasgen\lasgen.exe'))) {
-    if (!$make) { throw 'make.exe from MSYS2 required to build lasgen on the maintainer PC.' }
-    Push-Location $root
-    try {
-        & $make.Source gen-helper
-        if ($LASTEXITCODE -ne 0) { throw 'Bundled lasgen build failed' }
-    } finally { Pop-Location }
-}
+# Always rebuild lasgen for this release: a stale upstream ZA helper can
+# exist in build/helper/lasgen but does not necessarily support --game scarlet.
+if (!$make) { throw 'make.exe from MSYS2 required to build lasgen on the maintainer PC.' }
+Push-Location $root
+try {
+    & $make.Source gen-helper
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled Scarlet lasgen build failed' }
+} finally { Pop-Location }
 if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
     if (!$bash) { throw 'MSYS2 bash.exe required to prepare the bundled Zig compiler.' }
     Push-Location $root
