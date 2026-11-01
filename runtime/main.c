@@ -6,6 +6,7 @@
 
 #include "game_addresses.h"
 #include "gamelib.h"
+#include "gamebuild.h"
 #include "paths.h"
 #include "settings.h"
 #include "hle.h"
@@ -466,6 +467,40 @@ static void log_startup_info(void) {
             si.cpu[0] ? si.cpu : "unknown CPU", cores, ram, si.package ? ", " : "", si.package ? si.package : "");
 }
 
+
+#ifdef SCARLET_AOT
+static void scarlet_prepare_progress(double fraction, const char *step) {
+    // Non-UI setup: logs go to the launching ScarletLauncher process.
+    fprintf(stderr, "[scarlet-aot] %3.0f%% %s\n", fraction * 100.,
+            step ? step : "Preparing");
+}
+static int scarlet_prepare_aot(const char *game_dir) {
+    char why[1024] = {0};
+    if (gamelib_present(game_dir)) {
+        fprintf(stderr, "[scarlet-aot] compatible local game code already built\n");
+        return 0;
+    }
+    if (!gamebuild_available()) {
+        fprintf(stderr, "[scarlet-aot] bundled lasgen/zig/gamelib-src are missing; "
+                "install the full Scarlet-Recomp ZIP\n");
+        return 3;
+    }
+    // Conservative concurrency for the memory-intensive translated C files.
+    GameBuildOpts opts = {.progress = scarlet_prepare_progress, .jobs = 2, .cancelled = NULL};
+    fprintf(stderr, "[scarlet-aot] compiling local game code from %s\n", game_dir);
+    if (!gamebuild_run(game_dir, &opts, why, sizeof why)) {
+        fprintf(stderr, "[scarlet-aot] FAILED: %s\n", *why ? why : "unknown error");
+        return 4;
+    }
+    if (!gamelib_present(game_dir)) {
+        fprintf(stderr, "[scarlet-aot] build finished, but the generated library was not recognized\n");
+        return 5;
+    }
+    fprintf(stderr, "[scarlet-aot] ready: compiled locally; no game code shipped\n");
+    return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
 #if defined(SCARLET_AOT) && defined(_WIN32)
     // The Win32 launcher has the original Scarlet PC GDI+ layout and
@@ -508,8 +543,14 @@ int main(int argc, char **argv) {
     }
 #endif
     static char arg_root[1024];
+#ifdef SCARLET_AOT
+    bool prepare_aot = false;
+#endif
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--play")) skip_launcher = true;
+#ifdef SCARLET_AOT
+        else if (!strcmp(argv[i], "--prepare-aot")) { skip_launcher = true; prepare_aot = true; }
+#endif
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
@@ -523,6 +564,9 @@ int main(int argc, char **argv) {
     }
 #endif
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+#ifdef SCARLET_AOT
+    if (prepare_aot) return scarlet_prepare_aot(root);
+#endif
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0,
         // b1f12fd919eae86a: 2.0.2): the start screen sets its files up from the player's packages (zaimport). Started
         // without a log redirect (a double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
