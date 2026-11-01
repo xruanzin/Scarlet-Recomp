@@ -89,7 +89,11 @@ static void log_system(void) {
              __builtin_cpu_supports("avx2") ? "yes" : "no", __builtin_cpu_supports("fma") ? "yes" : "no",
              __builtin_cpu_supports("bmi2") ? "yes" : "no", gamelib_old_cpu() ? "v2" : "v3");
 #endif
+#ifdef SCARLET_AOT
+    LOG("[system] Scarlet-Recomp v1.0.0 (runtime %s) | %s | CPU: %s (%d threads%s) | RAM %d GB\n", rt_version(), os, cpu,
+#else
     LOG("[system] ZA Recomp %s | %s | CPU: %s (%d threads%s) | RAM %d GB\n", rt_version(), os, cpu,
+#endif
         SDL_GetNumLogicalCPUCores(), feat, (SDL_GetSystemRAM() + 512) / 1024);
 #ifdef _WIN32
     plat_run_begin();
@@ -438,7 +442,11 @@ static void log_startup_info(void) {
     char ram[32] = "RAM unknown";
     if (si.ram && tenths % 10) snprintf(ram, sizeof ram, "%llu.%llu GB RAM", tenths / 10, tenths % 10);
     else if (si.ram) snprintf(ram, sizeof ram, "%llu GB RAM", tenths / 10);
+#ifdef SCARLET_AOT
+    fprintf(stderr, "[info] Scarlet-Recomp v1.0.0 (runtime %s), %s, %s%s, %s%s%s\n", larecomp_version(), si.os[0] ? si.os : "unknown OS",
+#else
     fprintf(stderr, "[info] ZA Recomp %s, %s, %s%s, %s%s%s\n", larecomp_version(), si.os[0] ? si.os : "unknown OS",
+#endif
             si.cpu[0] ? si.cpu : "unknown CPU", cores, ram, si.package ? ", " : "", si.package ? si.package : "");
 }
 
