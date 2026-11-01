@@ -96,7 +96,11 @@ static bool writable(const char *dir) {
 
 static void fail(const char *msg) {
     fprintf(stderr, "%s\n", msg);
+#ifdef SCARLET_AOT
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Scarlet-Recomp", msg, NULL);
+#else
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ZA Recomp", msg, NULL);
+#endif
     exit(1);
 }
 
