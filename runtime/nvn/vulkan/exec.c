@@ -7601,6 +7601,48 @@ static void copy_region_dims(NvnTexture *t, const TexRefRec *ref, const FormatIn
     *img = st.copy_image_stride ? st.copy_image_stride : *row * hb;
 }
 
+// Record recent NVN guest-buffer writers for Scarlet's enrollment photo.
+// Only transfer API writes are visible here; guest CPU stores and compute
+// shader writes cannot be ruled out by an empty result. Opt-in, log-only.
+typedef struct {
+    uint64_t dst, src, bytes, frame;
+    uint8_t kind;
+} PortraitBufferWrite;
+#define PORTRAIT_WRITE_HISTORY 8192
+static PortraitBufferWrite portrait_write_history[PORTRAIT_WRITE_HISTORY];
+static unsigned portrait_write_count;
+static bool portrait_lineage_enabled(void) {
+    return ENV("SCARLET_PORTRAIT_SOURCE_LINEAGE") != NULL;
+}
+static void portrait_note_buffer_write(uint64_t dst, uint64_t src, uint64_t bytes, unsigned kind) {
+    if (!portrait_lineage_enabled() || !bytes || !dst) return;
+    PortraitBufferWrite *e = &portrait_write_history[portrait_write_count++ % PORTRAIT_WRITE_HISTORY];
+    *e = (PortraitBufferWrite){dst, src, bytes, renderer_present_count(), (uint8_t)kind};
+}
+static void portrait_report_buffer_writes(uint64_t src, uint64_t bytes) {
+    if (!portrait_lineage_enabled()) return;
+    unsigned total = portrait_write_count < PORTRAIT_WRITE_HISTORY ? portrait_write_count : PORTRAIT_WRITE_HISTORY;
+    unsigned matches = 0;
+    for (unsigned i = 0; i < total; i++) {
+        const PortraitBufferWrite *e =
+            &portrait_write_history[(portrait_write_count - total + i) % PORTRAIT_WRITE_HISTORY];
+        // Half-open ranges with subtraction, avoiding pointer-end overflow.
+        bool overlaps = e->dst >= src ? e->dst - src < bytes
+                                      : src - e->dst < e->bytes;
+        if (!overlaps) continue;
+        if (matches++ < 12)
+            LOG("[scarlet-portrait-lineage] previous %s frame=%llu "
+                "dst=%llx src=%llx bytes=%llu (overlaps photo input)\n",
+                e->kind == 1 ? "texture-to-buffer" : "buffer-to-buffer",
+                (unsigned long long)e->frame,
+                (unsigned long long)e->dst, (unsigned long long)e->src,
+                (unsigned long long)e->bytes);
+    }
+    LOG("[scarlet-portrait-lineage] input=%llx size=%llu: %u matches among %u "
+        "recent NVN transfers (not CPU/compute writes)\n",
+        (unsigned long long)src, (unsigned long long)bytes, matches, total);
+}
+
 static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     snap_reason = "buf2tex"; snapshots_invalidate(NULL);
     NvnTexture *t = (NvnTexture *)(uintptr_t)dst->tex;
@@ -7614,6 +7656,12 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     uint64_t row, img;
     copy_region_dims(t, dst, &fi, rg, &level, &row, &img);
     if (!fi || !fi->bpb) return;
+    if (t->format == 0x42 && t->width == 1440 && t->height == 864 &&
+        fi->bw == 4 && fi->bh == 4 && fi->bpb == 8 && rg[5] == 1) {
+        uint64_t required = row * (((uint64_t)rg[4] + 3) / 4);
+        if (required && required <= (4ull << 20))
+            portrait_report_buffer_writes(src, required);
+    }
     // Investigate Scarlet's blank enrollment photo without assuming that the
     // CPU mapping and the imported Vulkan buffer see the same bytes. This
     // readback runs only for its 1440x864 BC1 source and only when requested.
@@ -7792,6 +7840,7 @@ static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
     wait_why = "texture -> buffer readback";
     renderer_flush();  // the CPU may read the result right after the fence
     memcpy((void *)(uintptr_t)dst, out.ptr, total);
+    portrait_note_buffer_write(dst, (uint64_t)(uintptr_t)t, total, 1);
     if (small_mem) vmaDestroyImage(g_vk.vma, srcimg, small_mem);
 }
 
@@ -9580,6 +9629,7 @@ static void exec_list(uint64_t handle, int depth) {
             wait_why = "buffer -> buffer copy";
             renderer_flush();
             memmove((void *)(uintptr_t)r->x[1], (void *)(uintptr_t)r->x[0], r->x[2]);
+            portrait_note_buffer_write(r->x[1], r->x[0], r->x[2], 2);
             break;
         default: break;
         }
