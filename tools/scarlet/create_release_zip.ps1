@@ -45,10 +45,15 @@ foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll',
 }
 foreach ($copy in @(
   @('LICENSE','LICENSE'),
-  @('README.md','README-EN.md'),
+  @('README.md','README.md'),
+  @('README.pt-BR.md','README.pt-BR.md'),
   @('README.pt-BR.md','LEIA-ME.md'),
-  @('docs\RELEASE-v1.0.0.md','RELEASE-NOTES.md'),
-  @('docs\RELEASE-DEPENDENCIES-v1.0.0.md','REQUISITOS-E-CREDITOS.md')
+  @('docs\RELEASE-v1.0.0.md','docs\RELEASE-v1.0.0.md'),
+  @('docs\RELEASE-DEPENDENCIES-v1.0.0.md','docs\RELEASE-DEPENDENCIES-v1.0.0.md'),
+  @('docs\RELEASE-DEPENDENCIES-v1.0.0.md','REQUISITOS-E-CREDITOS.md'),
+  @('docs\RELEASE-CHECKLIST-v1.0.0.md','docs\RELEASE-CHECKLIST-v1.0.0.md'),
+  @('docs\SCARLET-BOOTSTRAP.md','docs\SCARLET-BOOTSTRAP.md'),
+  @('docs\SCARLET-ORIGINAL-LAUNCHER.md','docs\SCARLET-ORIGINAL-LAUNCHER.md')
 )) {
   CopySafe (Join-Path $root $copy[0]) $copy[1]
 }
