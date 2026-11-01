@@ -19,14 +19,77 @@ if ($LASTEXITCODE -ne 0) { throw 'Scarlet Windows build failed; release package 
 $env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
 $make = Get-Command make.exe -ErrorAction SilentlyContinue
 $bash = Get-Command bash.exe -ErrorAction SilentlyContinue
-# Always rebuild lasgen for this release: a stale upstream ZA helper can
-# exist in build/helper/lasgen but does not necessarily support --game scarlet.
-if (!$make) { throw 'make.exe from MSYS2 required to build lasgen on the maintainer PC.' }
+# Build Scarlet's standalone generator in its own Python venv. Unlike the
+# upstream 'make gen-helper', this does not demand py -3.12 or install
+# Link's Awakening randomizer dependencies that are irrelevant to Scarlet.
+$cache = Join-Path $root 'build\scarlet-tools-cache'
+$venv = Join-Path $root 'build\scarlet-gen-venv'
+$pyExe = Join-Path $venv 'Scripts\python.exe'
+$pythonTemp = Join-Path $cache 'python-temp'
+New-Item -ItemType Directory -Force -Path $pythonTemp | Out-Null
+$env:TMP = $pythonTemp
+$env:TEMP = $pythonTemp
+$env:TMPDIR = $pythonTemp
+$env:PIP_CACHE_DIR = Join-Path $cache 'pip-cache'
+$env:PYINSTALLER_CONFIG_DIR = Join-Path $cache 'pyinstaller-config'
+
+function Get-ScarletPython {
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($ver in @('313','312','311','314')) {
+        foreach ($base in @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Python'),
+            (Join-Path $env:LOCALAPPDATA 'Python'),
+            'C:\Python'
+        )) {
+            if ($base -eq 'C:\Python') {
+                $candidates.Add("C:\Python$ver\python.exe")
+            } else {
+                $candidates.Add((Join-Path $base "Python$ver\python.exe"))
+            }
+        }
+    }
+    foreach ($command in @('py.exe','python.exe','python3.exe')) {
+        foreach ($item in @(Get-Command $command -All -ErrorAction SilentlyContinue)) {
+            if ($item.Source) { $candidates.Add($item.Source) }
+        }
+    }
+    foreach ($exe in ($candidates | Select-Object -Unique)) {
+        if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+        if ($exe -match '[\/]msys64[\/]') { continue }
+        $info = & $exe -c 'import sys,struct; print(sys.version_info.major,sys.version_info.minor,struct.calcsize("P")*8,sys.platform)' 2>$null
+        if ($LASTEXITCODE -ne 0 -or !$info) { continue }
+        $fields = ("$info").Trim().Split(' ')
+        if ($fields.Count -eq 4 -and $fields[0] -eq '3' -and
+            $fields[1] -in @('11','12','13','14') -and
+            $fields[2] -eq '64' -and $fields[3] -eq 'win32') {
+            Write-Host "Python detectado: $exe ($info)"
+            return $exe
+        }
+    }
+    throw ('CPython x64 3.11/3.12/3.13 nao encontrado. Instale Python de ' +
+           'https://www.python.org/downloads/windows/ e tente novamente. ' +
+           'So quem produz o ZIP precisa de Python; jogadores nao.')
+}
+
 Push-Location $root
 try {
-    & $make.Source gen-helper
-    if ($LASTEXITCODE -ne 0) { throw 'Bundled Scarlet lasgen build failed' }
-} finally { Pop-Location }
+    if (!(Test-Path -LiteralPath $pyExe -PathType Leaf)) {
+        $python = Get-ScarletPython
+        & $python -m venv $venv
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar ambiente Python do lasgen.' }
+    }
+    & $pyExe -m pip install --disable-pip-version-check --no-cache-dir 'pyinstaller==6.22.3' 'capstone==5.0.9' 'unicorn==2.1.4' 'lz4==4.4.5'
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar dependencias do gerador Scarlet.' }
+    & $pyExe -m PyInstaller --noconfirm --clean --log-level WARN --distpath 'build/helper' --workpath 'build/scarlet-pyinstaller-work' 'tools/lasgen.spec'
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar lasgen.exe com PyInstaller.' }
+    & $pyExe 'tools/pe_no_cfg.py' 'build/helper/lasgen/lasgen.exe'
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao ajustar CFG de lasgen.exe.' }
+    & (Join-Path $root 'build\helper\lasgen\lasgen.exe') --help
+    if ($LASTEXITCODE -ne 0) { throw 'lasgen.exe nao iniciou corretamente.' }
+    Write-Host 'lasgen.exe Scarlet gerado e testado com sucesso.'
+} finally {
+    Pop-Location
+}
 if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
     if (!$bash) { throw 'MSYS2 bash.exe required to prepare the bundled Zig compiler.' }
     Push-Location $root
