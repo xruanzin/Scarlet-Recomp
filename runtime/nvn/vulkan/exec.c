@@ -7614,6 +7614,47 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     uint64_t row, img;
     copy_region_dims(t, dst, &fi, rg, &level, &row, &img);
     if (!fi || !fi->bpb) return;
+    // Investigate Scarlet's blank enrollment photo without assuming that the
+    // CPU mapping and the imported Vulkan buffer see the same bytes. This
+    // readback runs only for its 1440x864 BC1 source and only when requested.
+    // It does not replace either upload path (but adds a GPU synchronization).
+    if (t->format == 0x42 && t->width == 1440 && t->height == 864 &&
+        ENV("SCARLET_PORTRAIT_SOURCE_READBACK") &&
+        fi->bpb == 8 && fi->bw == 4 && fi->bh == 4 &&
+        rg[0] == 0 && rg[1] == 0 && rg[2] == 0 &&
+        rg[3] == 1440 && rg[4] == 864 && rg[5] == 1 &&
+        row == 2880 && img == 622080 && GM_IN(src, img) && !(src & 3)) {
+        static unsigned n;
+        if (n < 4) {
+            unsigned seq = n++;
+            VkSpan rb = vk_readback(img);
+            VkBufferCopy c = {GM_OFF(src), rb.off, img};
+            vk_full_barrier(vk_cmd());
+            rec_CmdCopyBuffer(vk_cmd(), gmem_buf, rb.buf, 1, &c);
+            renderer_flush();
+            const uint8_t *data = rb.ptr;
+            uint64_t hash = 1469598103934665603ull;
+            size_t nonzero = 0;
+            for (uint64_t k = 0; k < img; k++) {
+                hash = (hash ^ data[k]) * 1099511628211ull;
+                nonzero += data[k] != 0;
+            }
+            SDL_CreateDirectory("build");
+            SDL_CreateDirectory("build/scarlet-focus");
+            char filename[128];
+            snprintf(filename, sizeof filename,
+                     "build/scarlet-focus/portrait_bc1_source_gpu_%02u.bin", seq);
+            FILE *fp = fopen(filename, "wb");
+            size_t saved = 0;
+            if (fp) { saved = fwrite(data, 1, (size_t)img, fp); fclose(fp); }
+            LOG("[scarlet-portrait-readback] frame=%llu seq=%u src=%llx "
+                "gpu_nonzero=%zu/%llu gpu_hash=%016llx written=%zu file=%s "
+                "(source GPU readback BEFORE BC1 upload)\n",
+                (unsigned long long)renderer_present_count(), seq,
+                (unsigned long long)src, nonzero, (unsigned long long)img,
+                (unsigned long long)hash, saved, filename);
+        }
+    }
     TexBackend *b = vk_tex(t, false);  // prior CPU contents uploaded first
     renderer_mark_gpu_owned(t);
     if (b->aspect == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) return;
