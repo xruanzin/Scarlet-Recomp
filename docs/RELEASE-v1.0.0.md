@@ -1,38 +1,40 @@
-# Scarlet-Recomp v1.0.0 — draft release notes
+# Scarlet-Recomp v1.0.0 — primeira versão para testes (rascunho)
 
-**STATUS: DRAFT — do not publish/tag until the release checklist is complete.**
+> **PREPARAÇÃO, AINDA NÃO PUBLICADO.** Este texto será usado no Release quando o pacote e a instalação por jogadores forem validados.
 
-## Overview
+## Sobre esta versão
 
-First public version proposed for the Windows/Vulkan native Scarlet-Recomp project, targeting **Pokémon Scarlet update 4.0.0**. The host uses AOT static recompilation and a dedicated Vulkan runtime.
+O **Scarlet-Recomp** é um projeto comunitário de port de **Pokémon Scarlet 4.0.0** para Windows 11 (x64), com recompilação estática/AOT e gráficos em Vulkan.
 
-## Implemented
+### O que está disponível no runtime
 
-- Native Windows launcher with local game package selection and configuration
-- Scarlet-specific TLS and early allocator bootstrap now built into scarlet.exe automatically, including direct --play; experimental startup checkbox removed (the optional diagnostic environment flags can explicitly disable the compatibility path)
-- Scarlet-specific import workflow for locally supplied NSP/XCI, update 4.0.0 and optional DLC
-- Keyboard/controller input, including player-name entry
-- 30 FPS baseline and experimental 60 / 120 / 240 FPS targets
-- Vulkan rendering and iterative character/hair/sky graphics corrections
+- Launcher Scarlet com seleção de NSP/XCI, update 4.0.0, arquivos de keys locais e importação.
+- Inicialização TLS/alocador automaticamente pelo `scarlet.exe`, sem ativar a antiga opção de inicialização experimental.
+- Configurações de 30, 60, 120 e 240 FPS (a partir de 60 FPS, ainda experimental).
+- Entrada por controle/teclado e teclado virtual.
+- Correções gráficas específicas do Scarlet em desenvolvimento.
 
-## Known issues
+### Problemas conhecidos
 
-- **Enrollment-form portrait is black.** The original in-game portrait generator is not fixed. The optional external-image portrait fallback from the experimental branch is excluded.
-- Remaining rendering defects may occur; additional screenshots, cutscenes and effects are not comprehensively validated.
-- High FPS settings may affect gameplay timing, animations or physics.
-- First-run setup and installation on a clean Windows computer have not been validated as a consumer workflow.
+- **Foto preta na ficha de matrícula:** a imagem original do personagem ainda não é produzida corretamente. A correção fica para uma versão posterior.
+- **Bugs gráficos podem ocorrer** em personagens, efeitos, céu, algumas cutscenes e outras cenas.
+- **Acima de 30 FPS é experimental:** podem ocorrer diferenças de velocidade, física, animações, temporização ou instabilidade.
+- Compatibilidade com outros PCs e diferentes drivers Vulkan ainda exige testes.
 
-## Distribution restriction
+### Downloads e requisitos
 
-Distribute **only redistributable runtime/tool code and dependency files whose licenses permit it**. Do not include Pokémon game content, any NSP/XCI, dumped/extracted RomFS or ExeFS, console keys/tickets or user-generated game-derived AOT `lasgame.dll` / `lasgame.dll.id`. Users must use their own legally acquired inputs and generate their own AOT output where applicable.
+Veja [Requisitos e downloads oficiais](RELEASE-DEPENDENCIES-v1.0.0.md).
 
-The current `tools/scarlet/build_next_version.ps1` requires an existing local `lasgame.dll`, so a binary-only ZIP is **not** currently a complete plug-and-play installer.
+**Aviso importante:** o ZIP público preparado aqui contém apenas os arquivos redistribuíveis do runtime, launcher, importador e bibliotecas compatíveis. **Ele não inclui `lasgame.dll`** (código do jogo recompilado), nem NSP/XCI, RomFS/ExeFS ou keys. Para jogar, é necessário gerar a biblioteca AOT localmente dos arquivos legítimos do próprio usuário. O instalador/gerador automático dessa etapa ainda não está pronto; portanto o ZIP atual **não é plug-and-play** e não deve ser anunciado como completo.
 
-## Final release metadata (pending owner approval)
+### Créditos e agradecimentos
 
-- **Tag:** `v1.0.0`
-- **Title:** `Scarlet-Recomp v1.0.0`
-- **Target branch:** `release/v1.0.0-preparation-20261101` (until approved)
-- **Pre-release checkbox:** decide after test matrix and package plan
-- **Binary attachment:** TBD after clean, lawful and reproducible packaging is verified
-- **Publishing:** not performed as part of this draft
+Projeto desenvolvido por **xruanzin**, com assistência do **ChatGPT (OpenAI)** em análise de bugs, implementação, revisão técnica e documentação.
+
+Base arquitetural: [LASRecomp](https://github.com/peiikai/LASRecomp), [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) e seus colaboradores. Os direitos sobre Pokémon Scarlet e seus materiais pertencem aos respectivos titulares. Este projeto não tem associação oficial com Nintendo, Game Freak ou The Pokémon Company.
+
+---
+
+## English / test release summary
+
+**Scarlet-Recomp v1.0.0** is a community-developed Windows/Vulkan AOT runtime for **Pokémon Scarlet 4.0.0**. It offers a custom launcher, local game importer, automatic early-start compatibility and experimental FPS settings above 30. **Known issues:** a black enrollment-form portrait and possible graphical artifacts. This is not yet a plug-and-play download: the game-derived `lasgame.dll` must be generated locally from the player's own legally obtained game. Developed by **xruanzin**, with technical assistance from **ChatGPT (OpenAI)**. Not affiliated with Nintendo or The Pokémon Company.
