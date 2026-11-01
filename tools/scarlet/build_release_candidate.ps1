@@ -48,7 +48,17 @@ function Get-ScarletPython {
             }
         }
     }
-    foreach ($command in @('py.exe','python.exe','python3.exe')) {
+    # The Python launcher can resolve installations outside the usual path.
+    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        foreach ($version in @('3.13','3.12','3.11','3.14')) {
+            try {
+                $resolved = & $pyLauncher.Source "-$version" -c 'import sys; print(sys.executable)' 2>$null
+                if ($LASTEXITCODE -eq 0 -and $resolved) { $candidates.Add(("$resolved").Trim()) }
+            } catch { }
+        }
+    }
+    foreach ($command in @('python.exe','python3.exe')) {
         foreach ($item in @(Get-Command $command -All -ErrorAction SilentlyContinue)) {
             if ($item.Source) { $candidates.Add($item.Source) }
         }
@@ -56,8 +66,10 @@ function Get-ScarletPython {
     foreach ($exe in ($candidates | Select-Object -Unique)) {
         if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
         if ($exe -match '[\/]msys64[\/]') { continue }
-        $info = & $exe -c 'import sys,struct; print(sys.version_info.major,sys.version_info.minor,struct.calcsize("P")*8,sys.platform)' 2>$null
-        if ($LASTEXITCODE -ne 0 -or !$info) { continue }
+        try {
+            $info = & $exe -c 'import sys,struct; print(sys.version_info.major,sys.version_info.minor,struct.calcsize("P")*8,sys.platform)' 2>$null
+            if ($LASTEXITCODE -ne 0 -or !$info) { continue }
+        } catch { continue }
         $fields = ("$info").Trim().Split(' ')
         if ($fields.Count -eq 4 -and $fields[0] -eq '3' -and
             $fields[1] -in @('11','12','13','14') -and
