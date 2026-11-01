@@ -24,6 +24,28 @@ function CopySafe([string]$source, [string]$target) {
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+function CopyBundleDirectory([string]$source, [string]$targetName, [string]$requiredExe) {
+  if (!(Test-Path -LiteralPath $source -PathType Container)) {
+    throw "Bundled AOT prerequisite missing: $source. Build the local generator/compiler first."
+  }
+  if (!(Test-Path -LiteralPath (Join-Path $source $requiredExe) -PathType Leaf)) {
+    throw "Bundled AOT prerequisite executable missing: $(Join-Path $source $requiredExe)"
+  }
+  $target = Join-Path $stage $targetName
+  New-Item -ItemType Directory -Path $target -Force | Out-Null
+  Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
+}
+# ZA Recomp's release model: the generator + compiler ship with the runtime,
+# and compile the player's OWN game code at first startup.
+CopyBundleDirectory (Join-Path $root 'build\helper\lasgen') 'lasgen' 'lasgen.exe'
+CopyBundleDirectory (Join-Path $root 'build\zig-slim') 'zig' 'zig.exe'
+foreach ($file in @('runtime\cpu.h','runtime\simd.h','runtime\simd_fp.h',
+                   'runtime\gamelib.h','tools\gamelib_entry.c','runtime\hle\hle_symbols.txt')) {
+  CopySafe (Join-Path $root $file) ('gamelib-src\' + (Split-Path -Leaf $file))
+}
+CopySafe (Join-Path $bin 'lasrecomp.dll.a') 'lasrecomp.dll.a'
+
 foreach ($file in @('scarlet.exe','ScarletLauncher.exe','assets\scarlet_launcher_background.jpg')) {
   CopySafe (Join-Path $bin $file) $file
 }
@@ -42,6 +64,10 @@ foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll',
                    'libwinpthread-1.dll','SDL3.dll','avutil-61.dll',
                    'avcodec-63.dll','avformat-63.dll')) {
   CopySafe (Join-Path $bin $dll) $dll
+}
+foreach ($dll in @('libiconv-2.dll','swscale-10.dll','libshaderc_shared.dll')) {
+  $src = Join-Path $bin $dll
+  if (Test-Path -LiteralPath $src -PathType Leaf) { CopySafe $src $dll }
 }
 foreach ($copy in @(
   @('LICENSE','LICENSE'),
@@ -69,7 +95,9 @@ try {
   $entries = @($archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\','/') })
   if (@($entries | Where-Object { $_ -match $deny }).Count -gt 0) { throw 'ZIP safety audit failed.' }
   foreach ($name in @('Scarlet-Recomp/scarlet.exe','Scarlet-Recomp/ScarletLauncher.exe',
-                      'Scarlet-Recomp/scarletimport/scarletimport.exe','Scarlet-Recomp/LEIA-ME.md')) {
+                      'Scarlet-Recomp/scarletimport/scarletimport.exe','Scarlet-Recomp/LEIA-ME.md',
+                      'Scarlet-Recomp/zig/zig.exe','Scarlet-Recomp/lasgen/lasgen.exe',
+                      'Scarlet-Recomp/lasrecomp.dll.a','Scarlet-Recomp/gamelib-src/gamelib_entry.c')) {
     if ($entries -notcontains $name) { throw "ZIP is missing: $name" }
   }
 } finally { $archive.Dispose() }
@@ -78,7 +106,8 @@ $shaFile = $zip + '.sha256'
 Set-Content -LiteralPath $shaFile -Encoding ASCII -Value "$sha  $(Split-Path -Leaf $zip)"
 Write-Host "Created $zip"
 Write-Host "SHA256 $sha"
-Write-Warning 'Runtime only. lasgame.dll is game-derived and excluded. This ZIP alone cannot run the game; players need to produce their own game-derived AOT library from their own game.'
+Write-Host 'Portable setup tools bundled: Zig compiler, lasgen AOT generator, SDK header inputs, Scarlet importer.'
+Write-Warning 'lasgame.dll is game-derived and excluded. At first start the launcher prepares the game and compiles the AOT library from each player own files.'
 Write-Warning 'Review the licenses of the wallpaper and redistributable DLLs before publishing.'
 if ($CreateDraft) {
   $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
