@@ -40,6 +40,11 @@ function CopyBundleDirectory([string]$source, [string]$targetName, [string]$requ
 # and compile the player's OWN game code at first startup.
 CopyBundleDirectory (Join-Path $root 'build\helper\lasgen') 'lasgen' 'lasgen.exe'
 CopyBundleDirectory (Join-Path $root 'build\zig-slim') 'zig' 'zig.exe'
+foreach ($required in @('rt\link.rsp', 'rt-v2\link.rsp')) {
+  if (!(Test-Path -LiteralPath (Join-Path $stage ('zig\' + $required)) -PathType Leaf)) {
+    throw "Slim Zig toolchain missing required link recipe: $required"
+  }
+}
 foreach ($file in @('runtime\cpu.h','runtime\simd.h','runtime\simd_fp.h',
                    'runtime\gamelib.h','tools\gamelib_entry.c','runtime\hle\hle_symbols.txt')) {
   CopySafe (Join-Path $root $file) ('gamelib-src\' + (Split-Path -Leaf $file))
@@ -90,6 +95,7 @@ if ($bad.Count -gt 0) { throw ('Forbidden game/private files found: ' + ($bad.Fu
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 Compress-Archive -LiteralPath $stage -DestinationPath $zip -CompressionLevel Optimal
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
 try {
   $entries = @($archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\','/') })
