@@ -44,7 +44,7 @@ Os recursos acima descrevem implementações em desenvolvimento, **não um teste
 - [Python](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) e [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — para **compilação/geração AOT**, não para executar o launcher já compilado
 - [Requisitos completos e créditos](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
 
-O objetivo é que o pacote venha com as bibliotecas redistribuíveis e o importador prontos, mas **ainda não é possível jogar apenas com o ZIP de runtime**: a `lasgame.dll` é derivada do jogo e requer geração local a partir da sua própria cópia do Scarlet.
+O ZIP agora foi preparado para incluir `lasgen/`, o compilador Zig em `zig/`, `gamelib-src/`, o importador e as DLLs de suporte. O launcher chama automaticamente a geração local de `lasgame.dll` a partir dos seus arquivos do Scarlet. **Ainda é necessário testar o ZIP em um Windows limpo** antes de anunciá-lo como pronto para jogar.
 
 ## Empacotamento para distribuição
 
