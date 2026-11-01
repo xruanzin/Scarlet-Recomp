@@ -13,7 +13,9 @@ $builder = Join-Path $root 'tools\scarlet\build_next_version.ps1'
 $packager = Join-Path $root 'tools\scarlet\create_release_zip.ps1'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId
 if ($LASTEXITCODE -ne 0) { throw 'Scarlet Windows build failed; release package not created.' }
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId @(
-    if ($CreateDraft) { '-CreateDraft' }
-)
+if ($CreateDraft) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -CreateDraft
+} else {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId
+}
 if ($LASTEXITCODE -ne 0) { throw 'Scarlet runtime ZIP packaging failed.' }
