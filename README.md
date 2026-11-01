@@ -44,7 +44,7 @@ Features above describe implemented development paths, not a guarantee that they
 - [Python for Windows](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) and [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — for **compilation and local AOT generation**, not for running an already built launcher
 - [Full prerequisites and credits](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
 
-The runtime ZIP includes redistributable support DLLs and the self-contained importer, but **is not currently plug-and-play**: the game-derived `lasgame.dll` still has to be built locally from the player's own copy.
+The ZIP packager now includes `lasgen/`, the Zig compiler (`zig/`), `gamelib-src/` and a self-contained importer, following the ZA Recomp approach. The Scarlet launcher invokes local AOT generation from the player's own files. **A clean-machine end-to-end test is still required** before claiming that the ZIP works out of the box.
 
 ## Preparing the distributable runtime ZIP
 
