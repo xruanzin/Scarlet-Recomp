@@ -118,15 +118,22 @@ static void module_init(Cpu *c, Module *m) {
     else run_array(c, m->init_array, m->init_array_sz);
 }
 
-// Scarlet 4.0.0's SDK DT_INIT can call the main module's malloc before
-// the SDK has installed TPIDR_EL0. The allocator reads TPIDR_EL0+0x30.
-// An opt-in, guest-mapped bootstrap area allows investigating that early call
-// without mutating the AOT modules or faking the TLR's SDK ThreadPointer slot.
-// The SDK is still responsible for creating its real per-thread TLS object.
+// Scarlet 4.0.0 calls the main allocator from SDK DT_INIT before TPIDR_EL0
+// has been initialized. The known-safe startup compatibility path is now the
+// default in SCARLET_AOT builds, including --play without the Win32 launcher.
+// Both legacy environment flags remain optional explicit opt-outs (=0) for
+// debugging; other games / upstream builds retain their former opt-in behavior.
+static bool scarlet_native_bootstrap_enabled(const char *flag) {
+    if (g_program_id != 0x0100a3d008c5c000ull) return false;
+    const char *value = getenv(flag);
+#ifdef SCARLET_AOT
+    return !value || (value[0] && strcmp(value, "0") != 0);
+#else
+    return value && value[0] && strcmp(value, "0") != 0;
+#endif
+}
 static void scarlet_early_tls_probe(Cpu *c) {
-    if (g_program_id != 0x0100a3d008c5c000ull) return;
-    const char *opt = getenv("SCARLET_EARLY_TLS_PROBE");
-    if (!opt || !*opt || !strcmp(opt, "0")) return;
+    if (!scarlet_native_bootstrap_enabled("SCARLET_EARLY_TLS_PROBE")) return;
     uint64_t known = c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0;
     LOG("[scarlet/tls] before SDK init: TPIDR=%llx TPIDRRO=%llx TLR.ThreadPointer=%llx\n",
         (unsigned long long)c->tpidr, (unsigned long long)c->tpidrro, (unsigned long long)known);
@@ -138,9 +145,9 @@ static void scarlet_early_tls_probe(Cpu *c) {
 }
 // Main's malloc (f_7002b7d830) dispatches via TLS[0x30], then invokes
 // vtable[0x10] with (allocator, bytes, alignment) in x0/x1/x2.
-// The optional diagnostic shim below implements ONLY this allocation slot.
-// Unlike the earlier zeroed TLS probe, it returns real guest-mapped buffers.
-// It does not implement free/realloc/heap ownership: never enable in release.
+// This startup shim implements ONLY the early allocation slot and returns
+// guest-mapped buffers. It is NOT a general-purpose malloc/free/realloc heap;
+// it must be used only before the game's allocator becomes available.
 static void scarlet_bootstrap_allocate(Cpu *c) {
     uint64_t size = c->x[1], alignment = c->x[2];
     if (alignment < 8) alignment = 8;
@@ -156,11 +163,9 @@ static void scarlet_bootstrap_allocate(Cpu *c) {
             (unsigned long long)c->x[0]);
 }
 static void scarlet_bootstrap_allocator_probe(Cpu *c) {
-    if (g_program_id != 0x0100a3d008c5c000ull) return;
-    const char *opt = getenv("SCARLET_BOOTSTRAP_ALLOCATOR");
-    if (!opt || !*opt || !strcmp(opt, "0")) return;
+    if (!scarlet_native_bootstrap_enabled("SCARLET_BOOTSTRAP_ALLOCATOR")) return;
     if (!c->tpidr) {
-        LOG("[scarlet/bootstrap] no TPIDR: enable SCARLET_EARLY_TLS_PROBE=1\n");
+        LOG("[scarlet/bootstrap] no TPIDR: early TLS bootstrap unavailable (check SCARLET_EARLY_TLS_PROBE=0)\n");
         return;
     }
     uint64_t *slot = (uint64_t *)(uintptr_t)(c->tpidr + 0x30);
@@ -198,6 +203,11 @@ static void scarlet_allocator_probe(const char *when) {
         when, (unsigned long long)*seed, (unsigned long long)*instance, (unsigned)*guard);
 }
 static void rtld_init_sdk(Cpu *c) {
+#ifdef SCARLET_AOT
+    if (g_program_id == 0x0100a3d008c5c000ull)
+        LOG("[scarlet/bootstrap] native startup compatibility enabled by default; "
+            "SCARLET_EARLY_TLS_PROBE=0 / SCARLET_BOOTSTRAP_ALLOCATOR=0 opt out\n");
+#endif
     scarlet_early_tls_probe(c);
     scarlet_bootstrap_allocator_probe(c);
     if (scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) {
@@ -209,7 +219,7 @@ static void rtld_init_sdk(Cpu *c) {
     }
     scarlet_allocator_probe("before sdk DT_INIT");
     module_init(c, &g_modules[1]);
-    if (scarlet_probe_enabled("SCARLET_EARLY_TLS_PROBE"))
+    if (scarlet_native_bootstrap_enabled("SCARLET_EARLY_TLS_PROBE"))
         LOG("[scarlet/tls] after SDK init: TPIDR=%llx TLR.ThreadPointer=%llx\n",
             (unsigned long long)c->tpidr,
             (unsigned long long)(c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0));
