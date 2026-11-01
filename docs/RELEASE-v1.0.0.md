@@ -9,6 +9,7 @@ First public version proposed for the Windows/Vulkan native Scarlet-Recomp proje
 ## Implemented
 
 - Native Windows launcher with local game package selection and configuration
+- Scarlet-specific TLS and early allocator bootstrap now built into scarlet.exe automatically, including direct --play; experimental startup checkbox removed (the optional diagnostic environment flags can explicitly disable the compatibility path)
 - Scarlet-specific import workflow for locally supplied NSP/XCI, update 4.0.0 and optional DLC
 - Keyboard/controller input, including player-name entry
 - 30 FPS baseline and experimental 60 / 120 / 240 FPS targets
