@@ -25,7 +25,7 @@ O **Scarlet-Recomp** é um projeto comunitário de port de **Pokémon Scarlet 4.
 
 Veja [Requisitos e downloads oficiais](RELEASE-DEPENDENCIES-v1.0.0.md).
 
-**Aviso importante:** o ZIP público preparado aqui contém apenas os arquivos redistribuíveis do runtime, launcher, importador e bibliotecas compatíveis. **Ele não inclui `lasgame.dll`** (código do jogo recompilado), nem NSP/XCI, RomFS/ExeFS ou keys. Para jogar, é necessário gerar a biblioteca AOT localmente dos arquivos legítimos do próprio usuário. O instalador/gerador automático dessa etapa ainda não está pronto; portanto o ZIP atual **não é plug-and-play** e não deve ser anunciado como completo.
+**Modelo de instalação do ZA Recomp, em validação:** o ZIP reúne launcher, importador, `lasgen/`, Zig, headers de geração e dependências redistribuíveis. O usuário fornece seus próprios NSP/XCI, update 4.0.0 e keys; o launcher importa esses dados e invoca `scarlet.exe --prepare-aot`, que gera `lasgame.dll` localmente. Nenhum código recompilado do jogo é distribuído. **A integração já foi implementada no código, mas ainda falta compilar e testar o pacote num Windows limpo.**
 
 ### Créditos e agradecimentos
 
