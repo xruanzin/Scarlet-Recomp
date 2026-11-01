@@ -6,7 +6,6 @@
 
 #include "game_addresses.h"
 #include "gamelib.h"
-#include "gamebuild.h"
 #include "paths.h"
 #include "settings.h"
 #include "hle.h"
