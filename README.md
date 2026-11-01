@@ -37,6 +37,25 @@ Features above describe implemented development paths, not a guarantee that they
 
 **No NSP/XCI, extracted game files, decryption keys, tickets, saves, or game-derived AOT DLL should be committed or attached to a public release.**
 
+## Official prerequisite downloads
+
+- [Microsoft Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe) — if required by Windows
+- [NVIDIA graphics driver](https://www.nvidia.com/Download/index.aspx) or [AMD graphics driver](https://www.amd.com/en/support/download/drivers.html) — up-to-date Vulkan support
+- [Python for Windows](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) and [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — for **compilation and local AOT generation**, not for running an already built launcher
+- [Full prerequisites and credits](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
+
+The runtime ZIP includes redistributable support DLLs and the self-contained importer, but **is not currently plug-and-play**: the game-derived `lasgame.dll` still has to be built locally from the player's own copy.
+
+## Preparing the distributable runtime ZIP
+
+After locally building the Windows runtime, the maintainer can run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\create_release_zip.ps1
+```
+
+The package explicitly excludes game dumps, keys, saves and `lasgame.dll`. Audit the included third-party licenses and test on a clean Windows machine before publishing.
+
 ## Building for development
 
 This is **not yet a standalone binary installation guide**. The current incremental build assumes the owner's existing AOT output:
