@@ -20,6 +20,7 @@ Utiliza como base arquitetural o [PokeZ-ARecomp](https://github.com/Hexveil404/P
 
 - Runtime Windows 11 com Vulkan e módulos recompilados em AOT
 - Launcher próprio com seleção de pasta/arquivos NSP/XCI e campos de keys locais
+- Inicialização TLS/alocador automática para Scarlet 4.0.0: não é necessário marcar uma opção experimental nem configurar variáveis de ambiente
 - Caminho de importação para jogo base e atualização **4.0.0**, com DLCs opcionais
 - Controle, teclado e teclado virtual para inserir o nome do personagem
 - Seleção de metas de **30 / 60 / 120 / 240 FPS**; 30 FPS é a referência, valores superiores são experimentais
