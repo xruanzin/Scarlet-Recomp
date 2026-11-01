@@ -17,6 +17,32 @@ if (!(Test-Path (Join-Path $bin 'lasgame.dll'))) {
     throw 'lasgame.dll ausente; este script so atualiza o runtime, nao recompila a AOT.'
 }
 
+# On Windows, the linker cannot replace an .exe while that executable is
+# running. Fail BEFORE compilation rather than leaving a half-updated build.
+# Never kill processes, delete a binary, or touch the user's game-derived AOT.
+if (-not $SkipRuntime) {
+    foreach ($exeName in @('scarlet.exe', 'ScarletLauncher.exe')) {
+        $exePath = Join-Path $bin $exeName
+        if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { continue }
+        $lockProbe = $null
+        try {
+            $lockProbe = [System.IO.File]::Open(
+                $exePath,
+                [System.IO.FileMode]::Open,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None
+            )
+        } catch {
+            throw ("O executavel {0} esta bloqueado pelo Windows: {1}`n" +
+                   "Feche o Scarlet, o launcher e qualquer processo de teste/RenderDoc " +
+                   "que esteja utilizando a build. Depois execute novamente o comando. " +
+                   "Nao apague scarlet.exe, ScarletLauncher.exe nem lasgame.dll.") -f $exeName, $_.Exception.Message
+        } finally {
+            if ($lockProbe) { $lockProbe.Dispose() }
+        }
+    }
+}
+
 # Avoid filling C: with NuGet temporary caches.
 $cache = Join-Path $repo 'build\scarlet-tools-cache'
 New-Item -ItemType Directory -Force $cache | Out-Null
