@@ -33,10 +33,11 @@ if (-not $SkipRuntime) {
                 [System.IO.FileShare]::None
             )
         } catch {
-            throw ("O executavel {0} esta bloqueado pelo Windows: {1}`n" +
-                   "Feche o Scarlet, o launcher e qualquer processo de teste/RenderDoc " +
-                   "que esteja utilizando a build. Depois execute novamente o comando. " +
-                   "Nao apague scarlet.exe, ScarletLauncher.exe nem lasgame.dll.") -f $exeName, $_.Exception.Message
+            $message = ("O executavel {0} esta bloqueado pelo Windows: {1}`n" +
+                        "Feche o Scarlet, o launcher e qualquer processo de teste/RenderDoc " +
+                        "que esteja utilizando a build. Depois execute novamente o comando. " +
+                        "Nao apague scarlet.exe, ScarletLauncher.exe nem lasgame.dll.") -f $exeName, $_.Exception.Message
+            throw $message
         } finally {
             if ($lockProbe) { $lockProbe.Dispose() }
         }
