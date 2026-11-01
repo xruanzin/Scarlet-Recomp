@@ -7628,6 +7628,67 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     uint32_t nz = (uint32_t)rg[5];
     VkCommandBuffer cb = vk_cmd();
     vk_full_barrier(cb);
+    // Scarlet enrollment photo: 1440x864 BC1 comes from guest global memory,
+    // which is imported as a Vulkan buffer and can be produced by GPU shaders.
+    // Reading it synchronously from the CPU here may copy stale zeroes when
+    // earlier GPU writes haven't completed. Keep the old CPU staging path as
+    // the baseline, and opt into a GPU->GPU A/B test only for this fingerprint.
+    if (t->format == 0x42 && t->width == 1440 && t->height == 864 &&
+        fi->bw == 4 && fi->bh == 4 && fi->bpb == 8 && nz == 1) {
+        bool trace = ENV("SCARLET_PORTRAIT_TRACE") != NULL;
+        uint64_t bytes_per_row = (uint64_t)wb * 8;
+        uint64_t needed = (uint64_t)(hb - 1) * row + bytes_per_row;
+        bool direct = ENV("SCARLET_PORTRAIT_GPU_COPY") &&
+                      atoi(ENV("SCARLET_PORTRAIT_GPU_COPY")) != 0;
+        bool valid_pitch = row >= bytes_per_row && row % 8 == 0 &&
+                           img >= row * hb && img % row == 0;
+        bool can_direct = valid_pitch && GM_IN(src, needed) &&
+                          GM_OFF(src) % 8 == 0 && (row / 8 * 4) <= UINT32_MAX &&
+                          (img / row * 4) <= UINT32_MAX;
+        if (trace) {
+            uint64_t hash = 1469598103934665603ull;
+            uint64_t nonzero = 0;
+            // This describes the CPU-visible source, not the GPU's latest
+            // contents. Compare it with the F9 GPU image after the test.
+            if (valid_pitch) {
+                for (uint32_t y = 0; y < hb; y++) {
+                    const uint8_t *p = (const uint8_t *)(uintptr_t)(src + (uint64_t)y * row);
+                    for (uint64_t k = 0; k < bytes_per_row; k++) {
+                        hash = (hash ^ p[k]) * 1099511628211ull;
+                        nonzero += p[k] != 0;
+                    }
+                }
+            }
+            LOG("[scarlet-portrait-copy] frame %llu source=%llx row=%llu img=%llu "
+                "region=%d,%d,%d %dx%dx%d blocks=%ux%u cpu_nonzero=%llu "
+                "cpu_hash=%016llx gmem=%d direct_requested=%d direct_possible=%d\n",
+                (unsigned long long)renderer_present_count(), (unsigned long long)src,
+                (unsigned long long)row, (unsigned long long)img,
+                rg[0], rg[1], rg[2], rg[3], rg[4], rg[5], wb, hb,
+                (unsigned long long)nonzero, (unsigned long long)hash,
+                GM_IN(src, needed) ? 1 : 0, direct ? 1 : 0, can_direct ? 1 : 0);
+        }
+        if (direct && can_direct) {
+            VkBufferImageCopy c = {
+                .bufferOffset = GM_OFF(src),
+                .bufferRowLength = (uint32_t)(row / 8 * 4),
+                .bufferImageHeight = (uint32_t)(img / row * 4),
+                .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, (uint32_t)level, 0, 1},
+                .imageOffset = {rg[0], rg[1], rg[2]},
+                .imageExtent = {(uint32_t)rg[3], (uint32_t)rg[4], 1}
+            };
+            rec_CmdCopyBufferToImage(cb, gmem_buf, b->image,
+                                     VK_IMAGE_LAYOUT_GENERAL, 1, &c);
+            if (trace)
+                LOG("[scarlet-portrait-copy] frame %llu used GPU-direct BC1 copy "
+                    "bufferOffset=%llu; legacy CPU staging skipped\n",
+                    (unsigned long long)renderer_present_count(),
+                    (unsigned long long)c.bufferOffset);
+            return;
+        }
+        if (direct && trace)
+            LOG("[scarlet-portrait-copy] GPU-direct unavailable; using legacy CPU staging\n");
+    }
     uint64_t out_row = (uint64_t)wb * out_bpb;
     VkSpan s = vk_transient(out_row * hb * nz, 16);
     for (uint32_t z = 0; z < nz; z++)
