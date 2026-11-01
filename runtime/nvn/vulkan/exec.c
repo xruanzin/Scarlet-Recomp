@@ -6282,6 +6282,7 @@ static void gpl_probe_note(Pipe *pp) { (void)pp; }
 static void gpl_probe(void) {}
 #endif
 
+static void portrait_note_compute_candidate(uint64_t cs);
 static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     snap_reason = "compute"; snapshots_invalidate(NULL);
     if (!st.program || !gx || !gy || !gz) return;
@@ -6339,6 +6340,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         }
     }
     gfast_stores = cp->si->uses_gmem_store;
+    if (cp->si->uses_gmem_store) portrait_note_compute_candidate(st.program->stages[5].code_addr);
     if (cp->si->uses_gmem_map) gfast_prepare(cb);
     VkDescriptorSet ds = stage_set(&cp->p, cp->p.set_layout[0], 0, 5, cp->si, NULL, NULL, gx, gy, gz, NULL, NULL, NULL);
     rec_CmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, cp->pipe);
@@ -7608,9 +7610,11 @@ typedef struct {
     uint64_t dst, src, bytes, frame;
     uint8_t kind;
 } PortraitBufferWrite;
-#define PORTRAIT_WRITE_HISTORY 8192
+#define PORTRAIT_WRITE_HISTORY 32768
 static PortraitBufferWrite portrait_write_history[PORTRAIT_WRITE_HISTORY];
 static unsigned portrait_write_count;
+static uint64_t portrait_compute_storing_dispatches;
+static uint64_t portrait_compute_recorded_bindings;
 static bool portrait_lineage_enabled(void) {
     return ENV("SCARLET_PORTRAIT_SOURCE_LINEAGE") != NULL;
 }
@@ -7619,13 +7623,28 @@ static void portrait_note_buffer_write(uint64_t dst, uint64_t src, uint64_t byte
     PortraitBufferWrite *e = &portrait_write_history[portrait_write_count++ % PORTRAIT_WRITE_HISTORY];
     *e = (PortraitBufferWrite){dst, src, bytes, renderer_present_count(), (uint8_t)kind};
 }
+// Only potential compute writers: being bound with a shader that *may*
+// store to guest memory does not prove that the shader wrote that range.
+// An unbound pointer-based store can still be missed.
+static void portrait_note_compute_candidate(uint64_t cs) {
+    if (!portrait_lineage_enabled()) return;
+    portrait_compute_storing_dispatches++;
+    for (int i = 0; i < 16; i++) {
+        uint64_t addr = st.sbuf[5][i].addr;
+        uint64_t bytes = st.sbuf[5][i].size;
+        if (!addr || !bytes) continue;
+        portrait_compute_recorded_bindings++;
+        portrait_note_buffer_write(addr, cs, bytes, 3);
+    }
+}
 static void portrait_report_buffer_writes(uint64_t src, uint64_t bytes) {
     if (!portrait_lineage_enabled()) return;
     unsigned total = portrait_write_count < PORTRAIT_WRITE_HISTORY ? portrait_write_count : PORTRAIT_WRITE_HISTORY;
     unsigned matches = 0;
     for (unsigned i = 0; i < total; i++) {
+        // Most recent candidates matter more than older unrelated writes.
         const PortraitBufferWrite *e =
-            &portrait_write_history[(portrait_write_count - total + i) % PORTRAIT_WRITE_HISTORY];
+            &portrait_write_history[(portrait_write_count - 1 - i) % PORTRAIT_WRITE_HISTORY];
         // Half-open ranges with subtraction, avoiding pointer-end overflow.
         bool overlaps = e->dst >= src ? e->dst - src < bytes
                                       : src - e->dst < e->bytes;
@@ -7633,14 +7652,20 @@ static void portrait_report_buffer_writes(uint64_t src, uint64_t bytes) {
         if (matches++ < 12)
             LOG("[scarlet-portrait-lineage] previous %s frame=%llu "
                 "dst=%llx src=%llx bytes=%llu (overlaps photo input)\n",
-                e->kind == 1 ? "texture-to-buffer" : "buffer-to-buffer",
+                e->kind == 1 ? "texture-to-buffer" :
+                e->kind == 2 ? "buffer-to-buffer" :
+                "compute-storage-binding-candidate",
                 (unsigned long long)e->frame,
                 (unsigned long long)e->dst, (unsigned long long)e->src,
                 (unsigned long long)e->bytes);
     }
-    LOG("[scarlet-portrait-lineage] input=%llx size=%llu: %u matches among %u "
-        "recent NVN transfers (not CPU/compute writes)\n",
-        (unsigned long long)src, (unsigned long long)bytes, matches, total);
+    LOG("[scarlet-portrait-lineage] input=%llx size=%llu: %u overlaps among %u "
+        "recent NVN transfers + possible compute writers; "
+        "compute_storing_dispatches=%llu recorded_compute_bindings=%llu "
+        "(potential binding does not prove a store; CPU/indirect GPU stores not tracked)\n",
+        (unsigned long long)src, (unsigned long long)bytes, matches, total,
+        (unsigned long long)portrait_compute_storing_dispatches,
+        (unsigned long long)portrait_compute_recorded_bindings);
 }
 
 static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
