@@ -9,7 +9,7 @@ This is a release **preparation** checklist, not proof that tests passed.
 - [ ] Verify launcher starts without undocumented environment variables or local hardcoded paths.
 - [ ] Verify JOGAR starts Scarlet 4.0.0 with TLS/bootstrap allocation enabled by default, WITHOUT the old experimental checkbox or manual SCARLET_EARLY_TLS_PROBE / SCARLET_BOOTSTRAP_ALLOCATOR flags; also test direct scarlet.exe --play and startup with a stale saved launcher config.
 - [ ] Check that the limited early-allocation shim does not break subsequent heap allocation/free behavior after SDK initialization; prevent unsupported reinit ordering (SCARLET_MAIN_INIT_FIRST stays off).
-- [ ] Verify fresh machine workflow for users to import their own Scarlet base/update 4.0.0 and legally generate their own AOT game library; do not imply the importer generates it unless confirmed.
+- [ ] Verify clean-machine workflow: importer extracts player's Scarlet 4.0.0, launcher invokes `scarlet.exe --prepare-aot`, lasgen translates main/sdk/subsdk0, bundled Zig links local lasgame.dll + .id, and the game boots without Python, .NET SDK or MSYS2 installed.
 - [ ] Verify executable icon and launcher art are licensed for public distribution.
 - [ ] Verify 30 FPS gameplay/menu/name-entry and save restart; test optional FPS modes separately.
 - [ ] Confirm known black enrollment photo and any remaining rendering defects are listed accurately.
