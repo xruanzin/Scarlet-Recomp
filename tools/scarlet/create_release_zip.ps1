@@ -12,7 +12,7 @@ $bin = Join-Path $root "build\scarlet\$BuildId"
 $out = Join-Path $root 'build\dist'
 $stageRoot = Join-Path $root 'build\scarlet-release-staging'
 $stage = Join-Path $stageRoot 'Scarlet-Recomp'
-$zip = Join-Path $out 'Scarlet-Recomp-v1.0.0-Windows-x64-runtime.zip'
+$zip = Join-Path $out 'Scarlet-Recomp-windows.zip'
 if (!(Test-Path -LiteralPath $bin -PathType Container)) { throw "No local Windows build: $bin" }
 function CopySafe([string]$source, [string]$target) {
   if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Required file missing: $source" }
