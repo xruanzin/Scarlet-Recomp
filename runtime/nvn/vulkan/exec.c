@@ -1,5 +1,6 @@
 // Executes recorded NVN command lists with Vulkan (port of renderer.m; same structure, same behaviour).
 #include <SDL3/SDL_cpuinfo.h>
+#include <SDL3/SDL_surface.h>
 #include <SDL3/SDL_timer.h>
 #include <float.h>
 #include <math.h>
@@ -7529,6 +7530,107 @@ static void copy_region_dims(NvnTexture *t, const TexRefRec *ref, const FormatIn
     *img = st.copy_image_stride ? st.copy_image_stride : *row * hb;
 }
 
+// Temporary player-supplied portrait for Scarlet's empty 1440x864 BC1 source.
+// Does nothing when no image exists, and never replaces a nonempty game image.
+static uint16_t scarlet_rgb565(const uint8_t *p) {
+    return (uint16_t)(((uint16_t)(p[0] >> 3) << 11) | ((uint16_t)(p[1] >> 2) << 5) | (p[2] >> 3));
+}
+static void scarlet_bc1_rgb(uint16_t v, uint8_t *p) {
+    p[0] = (uint8_t)((((v >> 11) & 31) * 255 + 15) / 31);
+    p[1] = (uint8_t)((((v >> 5) & 63) * 255 + 31) / 63);
+    p[2] = (uint8_t)(((v & 31) * 255 + 15) / 31);
+}
+static void scarlet_encode_bc1(const SDL_Surface *surface, uint8_t *out) {
+    const uint8_t *pixels = surface->pixels;
+    for (int by = 0; by < 216; ++by)
+        for (int bx = 0; bx < 360; ++bx) {
+            uint8_t block[16][3];
+            int min_score = INT32_MAX, max_score = -1, lo = 0, hi = 0;
+            for (int dy = 0; dy < 4; ++dy) {
+                const uint8_t *row = pixels + (size_t)(by * 4 + dy) * surface->pitch + (size_t)bx * 16;
+                for (int dx = 0; dx < 4; ++dx) {
+                    int j = dy * 4 + dx;
+                    for (int k = 0; k < 3; ++k) block[j][k] = row[dx * 4 + k];
+                    int lum = block[j][0] * 77 + block[j][1] * 150 + block[j][2] * 29;
+                    if (lum < min_score) { min_score = lum; lo = j; }
+                    if (lum > max_score) { max_score = lum; hi = j; }
+                }
+            }
+            uint16_t a = scarlet_rgb565(block[hi]), b = scarlet_rgb565(block[lo]);
+            if (a < b) { uint16_t tmp = a; a = b; b = tmp; }
+            if (a == b) { if (a < UINT16_MAX) ++a; else --b; }
+            uint8_t c[4][3] = {{0}};
+            scarlet_bc1_rgb(a, c[0]);
+            scarlet_bc1_rgb(b, c[1]);
+            for (int k = 0; k < 3; ++k) {
+                c[2][k] = (uint8_t)((2 * c[0][k] + c[1][k]) / 3);
+                c[3][k] = (uint8_t)((c[0][k] + 2 * c[1][k]) / 3);
+            }
+            uint32_t indices = 0;
+            for (int j = 0; j < 16; ++j) {
+                uint32_t best_error = UINT32_MAX, choice = 0;
+                for (uint32_t k = 0; k < 4; ++k) {
+                    int dr = (int)block[j][0] - c[k][0];
+                    int dg = (int)block[j][1] - c[k][1];
+                    int db = (int)block[j][2] - c[k][2];
+                    uint32_t error = (uint32_t)(dr * dr + 2 * dg * dg + db * db);
+                    if (error < best_error) { best_error = error; choice = k; }
+                }
+                indices |= choice << (j * 2);
+            }
+            uint8_t *p = out + ((size_t)by * 360 + bx) * 8;
+            p[0] = (uint8_t)a; p[1] = (uint8_t)(a >> 8);
+            p[2] = (uint8_t)b; p[3] = (uint8_t)(b >> 8);
+            p[4] = (uint8_t)indices; p[5] = (uint8_t)(indices >> 8);
+            p[6] = (uint8_t)(indices >> 16); p[7] = (uint8_t)(indices >> 24);
+        }
+}
+static void scarlet_fill_blank_portrait(uint64_t src, const NvnTexture *t,
+                                       const FormatInfo *fi, const int32_t rg[6],
+                                       uint64_t row, uint64_t img) {
+    if (!t || !fi || t->format != 0x42 || t->width != 1440 || t->height != 864 ||
+        fi->bw != 4 || fi->bh != 4 || fi->bpb != 8 ||
+        rg[0] || rg[1] || rg[2] || rg[3] != 1440 || rg[4] != 864 || rg[5] != 1 ||
+        row < 2880 || img < row * 216) return;
+    static bool checked;
+    static uint8_t *encoded;
+    if (!checked) {
+        checked = true;
+        const char *path = getenv("SCARLET_PORTRAIT_IMAGE");
+        if (!path || !*path) path = "user/scarlet-portrait.png";
+        FILE *probe = fopen(path, "rb");
+        if (probe) {
+            fclose(probe);
+            SDL_Surface *original = SDL_LoadSurface(path);
+            SDL_Surface *rgba = original ? SDL_ConvertSurface(original, SDL_PIXELFORMAT_RGBA32) : NULL;
+            SDL_Surface *scaled = rgba ? SDL_ScaleSurface(rgba, 1440, 864, SDL_SCALEMODE_LINEAR) : NULL;
+            if (scaled && scaled->pixels) {
+                encoded = malloc(622080);
+                if (encoded) {
+                    scarlet_encode_bc1(scaled, encoded);
+                    LOG("[scarlet-portrait-fallback] loaded %s, encoded 1440x864 BC1\n", path);
+                }
+            }
+            if (!encoded) LOG("[scarlet-portrait-fallback] image unavailable: %s (%s)\n", path, SDL_GetError());
+            if (scaled) SDL_DestroySurface(scaled);
+            if (rgba) SDL_DestroySurface(rgba);
+            if (original) SDL_DestroySurface(original);
+        } else if (getenv("SCARLET_PORTRAIT_IMAGE")) {
+            LOG("[scarlet-portrait-fallback] file not found: %s\n", path);
+        }
+    }
+    if (!encoded) return;
+    const uint8_t *p = (const uint8_t *)(uintptr_t)src;
+    for (int y = 0; y < 216; ++y)
+        for (int x = 0; x < 2880; ++x)
+            if (p[(size_t)y * row + x]) return;
+    uint8_t *dst = (uint8_t *)(uintptr_t)src;
+    for (int y = 0; y < 216; ++y)
+        memcpy(dst + (size_t)y * row, encoded + (size_t)y * 2880, 2880);
+    LOG("[scarlet-portrait-fallback] replaced empty enrollment photo BC1 upload at %llx\n",
+        (unsigned long long)src);
+}
+
 static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     snap_reason = "buf2tex"; snapshots_invalidate(NULL);
     NvnTexture *t = (NvnTexture *)(uintptr_t)dst->tex;
@@ -7541,6 +7643,7 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     uint64_t row, img;
     copy_region_dims(t, dst, &fi, rg, &level, &row, &img);
     if (!fi || !fi->bpb) return;
+    scarlet_fill_blank_portrait(src, t, fi, rg, row, img);
     TexBackend *b = vk_tex(t, false);  // prior CPU contents uploaded first
     renderer_mark_gpu_owned(t);
     if (b->aspect == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) return;
