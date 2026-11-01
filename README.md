@@ -20,6 +20,7 @@ The repository retains an architecture derived from [PokeZ-ARecomp](https://gith
 
 - Windows 11 native runtime using Vulkan and AOT-compiled guest modules
 - Scarlet launcher with file/folder selection for NSP/XCI, local key-file pickers and import status
+- Automatic Scarlet-specific early TLS/allocator startup: no experimental toggle or boot environment variables required
 - Base game + **update 4.0.0** import path, with optional DLC handling
 - Keyboard/controller handling and a virtual keyboard for name entry
 - Selectable 30 / 60 / 120 / 240 FPS **targets**; 30 FPS is the tested baseline and higher targets are experimental
