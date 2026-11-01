@@ -817,11 +817,37 @@ static bool ImportPackages(const fs::path& folder, const fs::path& userKeys,
     if (ec) { *error=L"Falha ao ativar arquivos importados."; return false; }
     return Installed();
 }
-struct ImportJob { fs::path directory, keys, titleKeys; HWND window; };
+// The same bundled native executable builds AOT locally from the imported
+// Scarlet game. This is an ordinary child process; the importer and compiler
+// are shipped with the ZIP. No game-derived DLL is distributed.
+static bool PrepareLocalAot(std::wstring* error) {
+    const fs::path runtime=g_exe_dir / L"scarlet.exe";
+    if (!FileExists(runtime.wstring())) {
+        *error=L"scarlet.exe ausente: não é possível preparar a AOT.";
+        return false;
+    }
+    const fs::path logdir=g_exe_dir / L"user" / L"log";
+    std::error_code ec;
+    fs::create_directories(logdir,ec);
+    const fs::path log=logdir / L"scarlet-aot.log";
+    DWORD status=1;
+    LauncherLog("Preparing Scarlet AOT locally from the player's updated ExeFS");
+    const std::wstring args=L"--prepare-aot " + QuoteArg(InstalledRoot().wstring());
+    if (!RunProcess(runtime,args,log,&status) || status!=0) {
+        LauncherLog("AOT setup failed; inspect user/log/scarlet-aot.log");
+        *error=L"Não foi possível gerar o código AOT do jogo. Abra LOGS "
+               L"e consulte scarlet-aot.log. Os arquivos originais foram preservados.";
+        return false;
+    }
+    LauncherLog("Scarlet local AOT ready");
+    return true;
+}
+struct ImportJob { fs::path directory, keys, titleKeys; HWND window; bool onlyAot=false; };
 static DWORD WINAPI ImportWorker(void* raw) {
     std::unique_ptr<ImportJob> job((ImportJob*)raw);
     std::wstring error;
-    const bool ok=ImportPackages(job->directory,job->keys,job->titleKeys,&error);
+    bool ok=job->onlyAot || ImportPackages(job->directory,job->keys,job->titleKeys,&error);
+    if (ok) ok=PrepareLocalAot(&error);
     g_import_error=std::move(error);
     PostMessageW(job->window,kImportFinishedMessage,ok?1:0,0);
     return 0;
@@ -934,7 +960,19 @@ void LaunchGame() {
             L"Sélectionnez le dossier contenant les NSP/XCI."),kTitle,MB_OK|MB_ICONWARNING);
         return;
     }
-    if (InstallMatches(packages)) {StartNativeGame(); return;}
+    if (InstallMatches(packages)) {
+        // Always let the host check the local AOT fingerprint; a runtime update
+        // may require incremental recompilation. Never freeze the launcher UI.
+        g_importing.store(true);
+        LauncherLog("Existing game installation found; checking/preparing local AOT");
+        auto* job=new ImportJob{folder,GetText(g_keys_edit),
+                                GetText(g_title_keys_edit),g_main,true};
+        HANDLE thread=CreateThread(nullptr,0,ImportWorker,job,0,nullptr);
+        if (thread) CloseHandle(thread);
+        else { delete job; g_importing.store(false);
+               MessageBoxW(g_main,L"Falha ao iniciar preparação AOT.",kTitle,MB_OK|MB_ICONERROR); }
+        return;
+    }
     // Archive a previous failed import log, then remove stale progress lines.
     // Otherwise the timer could briefly display 99% from an earlier run.
     std::error_code logec;
