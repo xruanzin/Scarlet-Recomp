@@ -11,7 +11,7 @@
 
 O pacote de runtime já inclui `scarlet.exe`, `ScarletLauncher.exe`, `scarletimport.exe` self-contained, SDL3, bibliotecas UCRT64/FFmpeg selecionadas e arte do launcher, condicionada à verificação das licenças de redistribuição.
 
-**Python, .NET SDK e compiladores NÃO são requisitos de execução do runtime já compilado.** O importador é compilado de forma self-contained. Porém, preparar a AOT local com o fluxo atual ainda requer ferramentas de desenvolvimento; portanto, **não é correto prometer uma instalação sem ferramentas adicionais**.
+**A meta é não exigir Python, .NET SDK, compiladores ou MSYS2 no PC do jogador.** O importador é self-contained e o ZIP inclui `lasgen/` e o compilador Zig. Isso estará confirmado apenas após testar a instalação e geração AOT num Windows limpo.
 
 ## Apenas para quem compila o projeto
 
