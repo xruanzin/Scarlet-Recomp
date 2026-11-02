@@ -74,6 +74,73 @@ foreach ($dll in @('libiconv-2.dll','swscale-10.dll','libshaderc_shared.dll')) {
   $src = Join-Path $bin $dll
   if (Test-Path -LiteralPath $src -PathType Leaf) { CopySafe $src $dll }
 }
+
+# Copy the COMPLETE PE dependency closure, not only the fixed fallback list.
+# The developer's scarlet.exe may work because C:\msys64\ucrt64\bin is on PATH,
+# while an extracted public ZIP fails in the Windows loader before main() runs.
+# Scan the developer's lasgame.dll for dependencies too, but NEVER ship that DLL.
+$peReader = $null
+foreach ($candidate in @('C:\msys64\ucrt64\bin\objdump.exe',
+                         'C:\msys64\usr\bin\objdump.exe')) {
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) { $peReader = $candidate; break }
+}
+if (!$peReader) {
+  $command = Get-Command objdump.exe -ErrorAction SilentlyContinue
+  if ($command) { $peReader = $command.Source }
+}
+if (!$peReader) {
+  throw 'Cannot audit the portable ZIP: objdump.exe is missing. Install MSYS2 binutils and retry.'
+}
+
+$pendingPE = New-Object 'System.Collections.Generic.Queue[string]'
+foreach ($file in @('scarlet.exe','ScarletLauncher.exe')) {
+  $pendingPE.Enqueue((Join-Path $stage $file))
+}
+$localAot = Join-Path $bin 'lasgame.dll'
+if (Test-Path -LiteralPath $localAot -PathType Leaf) {
+  $pendingPE.Enqueue($localAot) # inspect imports only; never include game-derived DLL
+}
+$seenPE = @{}
+$resolvedDLLs = @{}
+while ($pendingPE.Count -gt 0) {
+  $pe = $pendingPE.Dequeue()
+  if ($seenPE.ContainsKey($pe)) { continue }
+  $seenPE[$pe] = $true
+  $report = @(& $peReader -p $pe 2>$null)
+  if ($LASTEXITCODE -ne 0) { throw "Cannot inspect PE imports of $pe" }
+  foreach ($line in $report) {
+    if ($line -notmatch '^\s*DLL Name:\s*([^\s]+)') { continue }
+    $dll = $Matches[1]
+    if ($dll -match '[\\/]') { throw "Unexpected DLL name in $pe : $dll" }
+    if ($resolvedDLLs.ContainsKey($dll)) { continue }
+    $resolvedDLLs[$dll] = $true
+
+    $inStage = Join-Path $stage $dll
+    if (!(Test-Path -LiteralPath $inStage -PathType Leaf)) {
+      # Prefer the already-vetted runtime copied by build_next_version.ps1.
+      $fromBuild = Join-Path $bin $dll
+      $fromMsys = Join-Path 'C:\msys64\ucrt64\bin' $dll
+      if (Test-Path -LiteralPath $fromBuild -PathType Leaf) {
+        CopySafe $fromBuild $dll
+      } elseif (Test-Path -LiteralPath $fromMsys -PathType Leaf) {
+        CopySafe $fromMsys $dll
+      }
+    }
+    if (Test-Path -LiteralPath $inStage -PathType Leaf) {
+      $pendingPE.Enqueue($inStage)
+      continue
+    }
+
+    # Windows DLLs are supplied by the OS. The Vulkan loader comes with the
+    # installed GPU driver, and VC runtimes are documented as prerequisites.
+    $system = Join-Path $env:SystemRoot "System32\$dll"
+    $external = $dll -match '^(?i:api-ms-win-|ext-ms-win-|vulkan-1\.dll$|vcruntime\d+(_\d+)?\.dll$|msvcp\d+(_\d+)?\.dll$)'
+    if (!(Test-Path -LiteralPath $system -PathType Leaf) -and !$external) {
+      throw "Portable ZIP missing dependent DLL '$dll' (imported by $pe). Check the UCRT64 toolchain and rebuild."
+    }
+  }
+}
+Write-Host "Portable ZIP dependency audit completed: $($resolvedDLLs.Count) DLL names resolved."
 foreach ($copy in @(
   @('LICENSE','LICENSE'),
   @('README.md','README.md'),
