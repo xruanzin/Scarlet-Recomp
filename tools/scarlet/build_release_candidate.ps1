@@ -4,7 +4,8 @@
 [CmdletBinding()]
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
-    [switch]$CreateDraft
+    [switch]$CreateDraft,
+    [string]$PythonExe = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -34,55 +35,100 @@ $env:PIP_CACHE_DIR = Join-Path $cache 'pip-cache'
 $env:PYINSTALLER_CONFIG_DIR = Join-Path $cache 'pyinstaller-config'
 
 function Get-ScarletPython {
+    # The previous search only handled a few default installer paths.
+    # Scarlet has already used local Python virtual environments; reuse them.
     $candidates = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($ver in @('313','312','311','314')) {
-        foreach ($base in @(
-            (Join-Path $env:LOCALAPPDATA 'Programs\Python'),
-            (Join-Path $env:LOCALAPPDATA 'Python'),
-            'C:\Python'
+    if ($PythonExe) {
+        $resolvedPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PythonExe)
+        if (!(Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+            throw "Python informado nao existe: $resolvedPath"
+        }
+        $candidates.Add($resolvedPath)
+    } else {
+        foreach ($candidate in @(
+            (Join-Path $root 'tools\venv\Scripts\python.exe'),
+            (Join-Path $root '.venv\Scripts\python.exe'),
+            (Join-Path $root 'venv\Scripts\python.exe'),
+            (Join-Path $root 'build\scarlet-python\Scripts\python.exe'),
+            (Join-Path $root 'build\scarlet-tools-cache\python\python.exe')
+        )) { $candidates.Add($candidate) }
+
+        $localDirs = New-Object 'System.Collections.Generic.List[string]'
+        if ($env:LOCALAPPDATA) {
+            $localDirs.Add((Join-Path $env:LOCALAPPDATA 'Programs\Python'))
+            $localDirs.Add((Join-Path $env:LOCALAPPDATA 'Python'))
+        }
+        if ($env:USERPROFILE) {
+            $localDirs.Add((Join-Path $env:USERPROFILE '.pyenv\pyenv-win\versions'))
+        }
+        $localDirs.Add('C:\Program Files')
+        $localDirs.Add('C:\')
+        foreach ($base in $localDirs) {
+            if (!(Test-Path -LiteralPath $base -PathType Container)) { continue }
+            foreach ($dir in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+                               Where-Object { $_.Name -match '^(Python|pythoncore-3\.|3\.(11|12|13|14))' })) {
+                $candidates.Add((Join-Path $dir.FullName 'python.exe'))
+            }
+        }
+        # PEP 514 registry entries also cover non-default Windows installations.
+        foreach ($registry in @(
+            'HKCU:\Software\Python\PythonCore',
+            'HKLM:\Software\Python\PythonCore',
+            'HKLM:\Software\WOW6432Node\Python\PythonCore'
         )) {
-            if ($base -eq 'C:\Python') {
-                $candidates.Add("C:\Python$ver\python.exe")
-            } else {
-                $candidates.Add((Join-Path $base "Python$ver\python.exe"))
+            foreach ($version in @(Get-ChildItem -Path $registry -ErrorAction SilentlyContinue)) {
+                try {
+                    $installKey = Get-Item -LiteralPath (Join-Path $version.PSPath 'InstallPath') -ErrorAction Stop
+                    $exe = $installKey.GetValue('ExecutablePath')
+                    if ($exe) { $candidates.Add([string]$exe) }
+                    $folder = $installKey.GetValue('')
+                    if ($folder) { $candidates.Add((Join-Path ([string]$folder) 'python.exe')) }
+                } catch { }
+            }
+        }
+        # Newer Python installations may be discoverable only through py.exe.
+        $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+        if ($pyLauncher) {
+            foreach ($version in @('3.13','3.12','3.11','3.14')) {
+                try {
+                    $resolved = & $pyLauncher.Source "-$version" -c 'import sys; print(sys.executable)' 2>$null
+                    if ($LASTEXITCODE -eq 0 -and $resolved) { $candidates.Add(("$resolved").Trim()) }
+                } catch { }
+            }
+        }
+        foreach ($command in @('python.exe','python3.exe','python3.13.exe','python3.12.exe','python3.11.exe')) {
+            foreach ($item in @(Get-Command $command -All -ErrorAction SilentlyContinue)) {
+                if ($item.Source) { $candidates.Add($item.Source) }
             }
         }
     }
-    # The Python launcher can resolve installations outside the usual path.
-    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($pyLauncher) {
-        foreach ($version in @('3.13','3.12','3.11','3.14')) {
-            try {
-                $resolved = & $pyLauncher.Source "-$version" -c 'import sys; print(sys.executable)' 2>$null
-                if ($LASTEXITCODE -eq 0 -and $resolved) { $candidates.Add(("$resolved").Trim()) }
-            } catch { }
-        }
-    }
-    foreach ($command in @('python.exe','python3.exe')) {
-        foreach ($item in @(Get-Command $command -All -ErrorAction SilentlyContinue)) {
-            if ($item.Source) { $candidates.Add($item.Source) }
-        }
-    }
+
+    $checked = 0
     foreach ($exe in ($candidates | Select-Object -Unique)) {
         if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
-        if ($exe -match '[\/]msys64[\/]') { continue }
+        if ($exe -match '[\\/]msys64[\\/]') { continue }
+        $checked++
         try {
-            $info = & $exe -c 'import sys,struct; print(sys.version_info.major,sys.version_info.minor,struct.calcsize("P")*8,sys.platform)' 2>$null
+            $info = & $exe -c 'import sys,struct;print("SCARLET_PY",sys.version_info.major,sys.version_info.minor,struct.calcsize("P")*8,sys.platform)' 2>$null
             if ($LASTEXITCODE -ne 0 -or !$info) { continue }
-        } catch { continue }
-        $fields = ("$info").Trim().Split(' ')
-        if ($fields.Count -eq 4 -and $fields[0] -eq '3' -and
-            $fields[1] -in @('11','12','13','14') -and
-            $fields[2] -eq '64' -and $fields[3] -eq 'win32') {
-            Write-Host "Python detectado: $exe ($info)"
-            return $exe
-        }
+            $fields = (("$info").Trim() -split '\s+')
+            if ($fields.Count -eq 5 -and $fields[0] -eq 'SCARLET_PY' -and
+                $fields[1] -eq '3' -and
+                $fields[2] -in @('11','12','13','14') -and
+                $fields[3] -eq '64' -and $fields[4] -eq 'win32') {
+                Write-Host "Python Windows x64 encontrado: $exe ($info)"
+                return $exe
+            }
+        } catch { }
     }
-    throw ('CPython x64 3.11/3.12/3.13 nao encontrado. Instale Python de ' +
-           'https://www.python.org/downloads/windows/ e tente novamente. ' +
-           'So quem produz o ZIP precisa de Python; jogadores nao.')
+    if ($PythonExe) {
+        throw "O executavel -PythonExe informado nao corresponde a CPython x64 compativel: $PythonExe"
+    }
+    throw ("Nao consegui localizar CPython Windows x64 3.11 a 3.14. " +
+           "Foram examinados $checked executaveis. " +
+           "Para indicar sua instalacao existente, execute: " +
+           ".\tools\scarlet\build_release_candidate.ps1 -PythonExe 'CAMINHO\python.exe' -CreateDraft")
 }
-
 Push-Location $root
 try {
     if (!(Test-Path -LiteralPath $pyExe -PathType Leaf)) {
