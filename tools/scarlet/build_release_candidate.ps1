@@ -211,18 +211,7 @@ if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
             # Download through Windows' native TLS trust store instead; do NOT
             # disable certificate verification. Keep upstream SHA256 pinning.
             $zigScript = Get-Content -LiteralPath (Join-Path $root 'tools\fetch_zig.sh') -Raw
-            $versionMatch = [regex]::Match($zigScript, '(?m)^VER=([0-9]+\.[0-9]+\.[0-9]+)\s*
-        & $bash.Source 'tools/zig_slim.sh' '-O1' '-march=x86-64-v3' '-fno-strict-aliasing' '-Wno-return-type' '-Wno-unused-label' '-fvisibility=hidden'
-        if ($LASTEXITCODE -ne 0) { throw 'Preparing portable Zig compiler failed' }
-    } finally { Pop-Location }
-}
-if ($CreateDraft) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -CreateDraft
-} else {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId
-}
-if ($LASTEXITCODE -ne 0) { throw 'Scarlet runtime ZIP packaging failed.' }
-)
+            $versionMatch = [regex]::Match($zigScript, '(?m)^VER=([0-9]+\.[0-9]+\.[0-9]+)\s*$')
             $hashMatch = [regex]::Match($zigScript, '(?m)^[ \t]*x86_64-windows\)[ \t]+SHA=([a-fA-F0-9]{64})[ \t]+;;')
             if (!$versionMatch.Success -or !$hashMatch.Success) {
                 throw 'Nao foi possivel ler a versao e o SHA256 do Zig em tools/fetch_zig.sh.'
