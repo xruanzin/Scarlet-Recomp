@@ -115,8 +115,14 @@ bool valid_stem(const std::string &s) {
     return !s.empty() && s.size() < 64 &&
            s.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") == std::string::npos;
 }
+// Scarlet 4.0.0 has a third NSO. Restrict names to known modules so receipts
+// cannot reference arbitrary paths inside the build cache.
+bool valid_module(const char *module) {
+    return module && (!strcmp(module, "main") || !strcmp(module, "sdk") ||
+                      !strcmp(module, "subsdk0"));
+}
 std::string generation(BuildCache *c, const char *module, int chunks) {
-    need((!strcmp(module, "main") || !strcmp(module, "sdk")) && chunks > 0 && chunks <= 10000,
+    need(valid_module(module) && chunks > 0 && chunks <= 10000,
          "Invalid generated module.");
     std::ostringstream out;
     out << "LASGEN1\n" << chunks << '\n';
@@ -249,7 +255,8 @@ extern "C" bool build_cache_prepare_generation(BuildCache *c, const char *spec, 
         std::string identity = "LASGENKEY1\n" + key.finish() + "\n";
         auto record = c->root / "generation-identity";
         if (!fs::exists(record) || read(record, 128) != identity) {
-            for (const char *name : {"main.generation", "sdk.generation", "main", "sdk"})
+            for (const char *name : {"main.generation", "sdk.generation", "subsdk0.generation",
+                                 "main", "sdk", "subsdk0"})
                 fs::remove_all(c->root / name);
             write(record, identity);
         }
@@ -286,7 +293,7 @@ extern "C" bool build_cache_present(const char *game_dir) {
 }
 extern "C" bool build_cache_generation(BuildCache *c, const char *module, int *chunks) {
     try {
-        need(!strcmp(module, "main") || !strcmp(module, "sdk"), "Invalid module name.");
+        need(valid_module(module), "Invalid module name.");
         auto record = read(c->root / (std::string(module) + ".generation"));
         std::istringstream in(record);
         std::string magic;
