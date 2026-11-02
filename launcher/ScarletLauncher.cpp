@@ -1284,12 +1284,6 @@ void DrawBackground(HWND hwnd, HDC hdc) {
                         PointF(300.0f, 579.0f), &text_brush);
     graphics.DrawString(Tr(L"IDIOMA",L"LANGUAGE",L"IDIOMA",L"LANGUE"), -1, &label,
                         PointF(28.0f, 365.0f), &text_brush);
-    Gdiplus::Font experimental_note(&family, 13.0f, FontStyleRegular, UnitPixel);
-    graphics.DrawString(Tr(L"TLS + alocador provisório",
-                           L"Temporary TLS + allocator",
-                           L"TLS y asignador temporal",
-                           L"TLS et allocateur provisoires"), -1, &experimental_note,
-                        PointF(29.0f, 554.0f), &muted);
 
     SolidBrush status_panel(Color(255, 36, 28, 38));
     graphics.FillRectangle(&status_panel, 592, 607, 531, 35);
