@@ -206,8 +206,66 @@ if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
     Push-Location $root
     try {
         if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig\zig.exe'))) {
+            # The user's Eden installation may inject CURL_CA_BUNDLE pointing to
+            # a missing/broken PEM file. MSYS2 curl then fails with error 77.
+            # Download through Windows' native TLS trust store instead; do NOT
+            # disable certificate verification. Keep upstream SHA256 pinning.
+            $zigScript = Get-Content -LiteralPath (Join-Path $root 'tools\fetch_zig.sh') -Raw
+            $versionMatch = [regex]::Match($zigScript, '(?m)^VER=([0-9]+\.[0-9]+\.[0-9]+)\s*
+        & $bash.Source 'tools/zig_slim.sh' '-O1' '-march=x86-64-v3' '-fno-strict-aliasing' '-Wno-return-type' '-Wno-unused-label' '-fvisibility=hidden'
+        if ($LASTEXITCODE -ne 0) { throw 'Preparing portable Zig compiler failed' }
+    } finally { Pop-Location }
+}
+if ($CreateDraft) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -CreateDraft
+} else {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId
+}
+if ($LASTEXITCODE -ne 0) { throw 'Scarlet runtime ZIP packaging failed.' }
+)
+            $hashMatch = [regex]::Match($zigScript, '(?m)^[ \t]*x86_64-windows\)[ \t]+SHA=([a-fA-F0-9]{64})[ \t]+;;')
+            if (!$versionMatch.Success -or !$hashMatch.Success) {
+                throw 'Nao foi possivel ler a versao e o SHA256 do Zig em tools/fetch_zig.sh.'
+            }
+            $zigVersion = $versionMatch.Groups[1].Value
+            $zigHash = $hashMatch.Groups[1].Value
+            $zigName = "zig-x86_64-windows-$zigVersion.zip"
+            $zigDownloadDir = Join-Path $root 'build\zig-dl'
+            $zigZip = Join-Path $zigDownloadDir $zigName
+            $zigTemp = $zigZip + '.download'
+            New-Item -ItemType Directory -Force -Path $zigDownloadDir | Out-Null
+            $validArchive = $false
+            if (Test-Path -LiteralPath $zigZip -PathType Leaf) {
+                $validArchive = (Get-FileHash -LiteralPath $zigZip -Algorithm SHA256).Hash -ieq $zigHash
+            }
+            if (!$validArchive) {
+                # A failed curl transfer may have left an incomplete archive;
+                # replace only the download, never game files or an AOT DLL.
+                $url = "https://ziglang.org/download/$zigVersion/$zigName"
+                Write-Host "Baixando Zig $zigVersion via HTTPS do Windows: $url"
+                $oldTls = [Net.ServicePointManager]::SecurityProtocol
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = $oldTls -bor [Net.SecurityProtocolType]::Tls12
+                    Invoke-WebRequest -Uri $url -OutFile $zigTemp -UseBasicParsing -ErrorAction Stop
+                    $downloadHash = (Get-FileHash -LiteralPath $zigTemp -Algorithm SHA256).Hash
+                    if ($downloadHash -ine $zigHash) {
+                        throw "Zig SHA256 incorreto: $downloadHash (esperado $zigHash)."
+                    }
+                    Move-Item -LiteralPath $zigTemp -Destination $zigZip -Force
+                } finally {
+                    [Net.ServicePointManager]::SecurityProtocol = $oldTls
+                    if (Test-Path -LiteralPath $zigTemp -PathType Leaf) {
+                        Remove-Item -LiteralPath $zigTemp -Force
+                    }
+                }
+                Write-Host "Zig $zigVersion baixado e SHA256 verificado."
+            } else {
+                Write-Host "Zig $zigVersion ja esta em cache e passou na verificacao SHA256."
+            }
+            # The upstream script sees the verified archive in build/zig-dl
+            # and only extracts/prunes it; it does not invoke curl.
             & $bash.Source 'tools/fetch_zig.sh'
-            if ($LASTEXITCODE -ne 0) { throw 'Fetching pinned Zig compiler failed' }
+            if ($LASTEXITCODE -ne 0) { throw 'Extracao ou preparacao do Zig falhou.' }
         }
         & $bash.Source 'tools/zig_slim.sh' '-O1' '-march=x86-64-v3' '-fno-strict-aliasing' '-Wno-return-type' '-Wno-unused-label' '-fvisibility=hidden'
         if ($LASTEXITCODE -ne 0) { throw 'Preparing portable Zig compiler failed' }
