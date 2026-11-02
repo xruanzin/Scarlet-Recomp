@@ -469,9 +469,57 @@ static void log_startup_info(void) {
 
 #ifdef SCARLET_AOT
 static void scarlet_prepare_progress(double fraction, const char *step) {
-    // Non-UI setup: logs go to the launching ScarletLauncher process.
-    fprintf(stderr, "[scarlet-aot] %3.0f%% %s\n", fraction * 100.,
-            step ? step : "Preparing");
+    // The launcher reads this log to display real AOT progress. Avoid writing
+    // the same line every 50 ms for an hours-long first-run compilation.
+    static int previous_percent = -1;
+    static char previous_step[80] = "";
+    static uint64_t previous_log_ns = 0;
+    int percent = (int)(fraction * 100.0 + 0.5);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    const char *message = step ? step : "Preparing";
+    const uint64_t now = plat_now_ns();
+    if (percent == previous_percent && !strcmp(message, previous_step) &&
+        previous_log_ns && now - previous_log_ns < 30000000000ull)
+        return;
+    previous_percent = percent;
+    snprintf(previous_step, sizeof previous_step, "%s", message);
+    previous_log_ns = now;
+    fprintf(stderr, "[scarlet-aot] %3d%% %s\n", percent, message);
+}
+
+// Parallel builds save substantial time on modern CPUs, but generated
+// functions can be very memory-intensive. Budget both logical CPU threads
+// and currently available RAM. No development tools are required by players.
+// SCARLET_AOT_JOBS=1..8 can be used to override the automatic choice.
+static int scarlet_prepare_jobs(void) {
+    const int cores = SDL_GetNumLogicalCPUCores();
+    const int ram_mb = SDL_GetSystemRAM();
+    int jobs = ram_mb >= 14336 ? 4 : ram_mb >= 10240 ? 3 : ram_mb >= 6144 ? 2 : 1;
+    if (cores > 0) {
+        const int cpu_budget = cores / 2 > 0 ? cores / 2 : 1;
+        if (jobs > cpu_budget) jobs = cpu_budget;
+    }
+#ifdef _WIN32
+    MEMORYSTATUSEX memory = {0};
+    memory.dwLength = sizeof memory;
+    if (GlobalMemoryStatusEx(&memory)) {
+        const unsigned long long free_mb = memory.ullAvailPhys / (1024ull * 1024ull);
+        const int memory_budget = free_mb >= 8192 ? 4 : free_mb >= 6144 ? 3 :
+                                  free_mb >= 4096 ? 2 : 1;
+        if (jobs > memory_budget) jobs = memory_budget;
+    }
+#endif
+    const char *override = getenv("SCARLET_AOT_JOBS");
+    if (override && *override) {
+        char *end = NULL;
+        const long requested = strtol(override, &end, 10);
+        if (*end == 0 && requested >= 1 && requested <= 8) jobs = (int)requested;
+        else fprintf(stderr, "[scarlet-aot] ignoring invalid SCARLET_AOT_JOBS (use 1..8)\n");
+    }
+    fprintf(stderr, "[scarlet-aot] compile workers: %d (CPU threads=%d, RAM=%d MB)\n",
+            jobs, cores, ram_mb);
+    return jobs;
 }
 static int scarlet_prepare_aot(const char *game_dir) {
     char why[1024] = {0};
@@ -484,8 +532,9 @@ static int scarlet_prepare_aot(const char *game_dir) {
                 "install the full Scarlet-Recomp ZIP\n");
         return 3;
     }
-    // Conservative concurrency for the memory-intensive translated C files.
-    GameBuildOpts opts = {.progress = scarlet_prepare_progress, .jobs = 2, .cancelled = NULL};
+    // Scale the first-run compilation to the user's CPU and available memory.
+    GameBuildOpts opts = {.progress = scarlet_prepare_progress, .jobs = scarlet_prepare_jobs(),
+                          .cancelled = NULL};
     fprintf(stderr, "[scarlet-aot] compiling local game code from %s\n", game_dir);
     if (!gamebuild_run(game_dir, &opts, why, sizeof why)) {
         fprintf(stderr, "[scarlet-aot] FAILED: %s\n", *why ? why : "unknown error");
