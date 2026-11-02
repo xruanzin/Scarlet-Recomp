@@ -181,6 +181,7 @@ std::atomic<bool> g_aot_preparing{false};
 std::wstring g_import_error;
 int g_language_index = 0;
 int g_import_percent = 0;
+int g_aot_percent = 0;
 fs::path g_exe_dir;
 fs::path g_ini_path;
 
@@ -212,6 +213,28 @@ int ReadImportPercent() {
         if (progress >> done >> total && total > 0)
             percent=std::max(percent,static_cast<int>(
                 std::min(99.0L,100.0L*done/total)));
+    }
+    return percent;
+}
+// Read only the tail: a full AOT log can be large, and the UI polls often.
+// The AOT reports its own percent; extraction's 99% must never be reused here.
+int ReadAotPercent() {
+    std::ifstream in(g_exe_dir / L"user" / L"log" / L"scarlet-aot.log",
+                     std::ios::binary);
+    if (!in) return 0;
+    in.seekg(0, std::ios::end);
+    const std::streamoff size = in.tellg();
+    if (size <= 0) return 0;
+    const std::streamoff start = size > 16384 ? size - 16384 : 0;
+    in.seekg(start, std::ios::beg);
+    std::string line;
+    if (start) std::getline(in, line);  // Skip incomplete first line.
+    int percent = 0;
+    while (std::getline(in, line)) {
+        int value = 0;
+        if (std::sscanf(line.c_str(), "[scarlet-aot] %d%%", &value) == 1)
+            percent = std::clamp(value, 0, 99);
+        if (line.find("[scarlet-aot] ready:") == 0) percent = 100;
     }
     return percent;
 }
@@ -1294,9 +1317,12 @@ void DrawBackground(HWND hwnd, HDC hdc) {
                             PointF(606.0f, 613.0f), &text_brush);
     }
     if (g_importing.load() || g_import_percent == 100) {
-        const int percent=std::clamp(g_import_percent,0,100);
+        const bool aot = g_aot_preparing.load();
+        const int percent=std::clamp(aot ? g_aot_percent : g_import_percent,0,100);
         const std::wstring percentage=std::to_wstring(percent)+L"%";
-        graphics.DrawString(Tr(L"Extraindo arquivos, aguarde",
+        graphics.DrawString(aot ? Tr(L"Compilando jogo para este PC",
+            L"Compiling game for this PC",L"Compilando juego para este PC",
+            L"Compilation du jeu pour ce PC") : Tr(L"Extraindo arquivos, aguarde",
             L"Extracting files, please wait",L"Extrayendo archivos, espere",
             L"Extraction des fichiers, patientez"), -1, &status_font,
             PointF(300.0f, 651.0f), &text_brush);
@@ -1435,10 +1461,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
 
-    case kAotPreparingMessage:
+    case kAotPreparingMessage: {
+        if (wparam) g_aot_percent = 0;
         g_aot_preparing.store(wparam != 0);
         RefreshStatus();
+        RECT progress{295,643,970,699};
+        InvalidateRect(hwnd,&progress,FALSE);
         return 0;
+    }
 
     case kImportFinishedMessage: {
         g_importing.store(false);
@@ -1466,9 +1496,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
     case WM_TIMER:
         if (g_importing.load()) {
-            const int now=std::max(g_import_percent,ReadImportPercent());
-            if (now!=g_import_percent) {
-                g_import_percent=now;
+            const bool aot = g_aot_preparing.load();
+            int &shown = aot ? g_aot_percent : g_import_percent;
+            const int now = std::max(shown, aot ? ReadAotPercent() : ReadImportPercent());
+            if (now != shown) {
+                shown = now;
                 RECT r{295,643,970,699};
                 InvalidateRect(hwnd,&r,FALSE);
             }
