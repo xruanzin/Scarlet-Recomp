@@ -13,15 +13,6 @@ O pacote de runtime já inclui `scarlet.exe`, `ScarletLauncher.exe`, `scarletimp
 
 **A meta é não exigir Python, .NET SDK, compiladores ou MSYS2 no PC do jogador.** O importador é self-contained e o ZIP inclui `lasgen/` e o compilador Zig. Isso estará confirmado apenas após testar a instalação e geração AOT num Windows limpo.
 
-## Apenas para quem compila o projeto
-
-- Python (oficial): https://www.python.org/downloads/windows/
-- MSYS2/UCRT64: https://www.msys2.org/
-- .NET 8 SDK: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
-- Microsoft Visual Studio / Build Tools: https://visualstudio.microsoft.com/downloads/
-- Vulkan SDK (desenvolvimento): https://vulkan.lunarg.com/sdk/home
-- GitHub CLI (somente para o mantenedor criar um Release): https://cli.github.com/
-
 ## Limitações da v1.0.0
 
 - **A foto do personagem no formulário de matrícula aparece preta.**
