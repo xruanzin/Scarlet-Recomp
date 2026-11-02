@@ -39,56 +39,53 @@ $env:PYINSTALLER_CONFIG_DIR = Join-Path $cache 'pyinstaller-config'
 # dependency; it remains on the maintainer's D: drive and is NOT in the ZIP.
 function Install-ScarletPortablePython {
     $version = '3.13.16'
-    $target = Join-Path $cache "python-nuget-$version"
-    $exe = Join-Path $target 'tools\python.exe'
+    $packageRoot = Join-Path $cache 'nuget-packages'
+    $exe = Join-Path $packageRoot "python\$version\tools\python.exe"
     if (Test-Path -LiteralPath $exe -PathType Leaf) {
-        Write-Host "Reutilizando Python isolado no projeto: $exe"
+        Write-Host "Reutilizando CPython NuGet ja baixado: $exe"
         return $exe
     }
-    $pkg = Join-Path $cache "python.$version.nupkg"
-    $shaPath = $pkg + '.sha512'
-    $url = "https://api.nuget.org/v3-flatcontainer/python/$version/python.$version.nupkg"
-    Write-Host "Baixando CPython oficial para builds: $version (NuGet; sem instalacao global)..."
-    $oldSecurity = [Net.ServicePointManager]::SecurityProtocol
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = $oldSecurity -bor [Net.SecurityProtocolType]::Tls12
-        if (!(Test-Path -LiteralPath $pkg -PathType Leaf)) {
-            Invoke-WebRequest -Uri $url -OutFile $pkg -UseBasicParsing -ErrorAction Stop
-        }
-        Invoke-WebRequest -Uri ($url + '.sha512') -OutFile $shaPath -UseBasicParsing -ErrorAction Stop
-    } catch {
-        throw ("Falha ao obter Python NuGet pela rede: $($_.Exception.Message). " +
-               "Confira sua conexao e o acesso a api.nuget.org, ou informe -PythonExe.")
-    } finally {
-        [Net.ServicePointManager]::SecurityProtocol = $oldSecurity
-    }
 
-    # Verify package integrity before running any downloaded executable.
-    $expected = (Get-Content -LiteralPath $shaPath -Raw).Trim()
-    $stream = [System.IO.File]::OpenRead($pkg)
-    try {
-        $sha = [System.Security.Cryptography.SHA512]::Create()
-        try { $actual = [Convert]::ToBase64String($sha.ComputeHash($stream)) }
-        finally { $sha.Dispose() }
-    } finally { $stream.Dispose() }
-    if ($expected -cne $actual) {
-        throw "O SHA512 do pacote Python nao confere com o publicado no NuGet. Arquivo: $pkg"
+    # Use NuGet's OWN package client, not a handwritten SHA512 URL: the
+    # NuGet flat-container API documents .nupkg but not .nupkg.sha512.
+    # A NuGet restore validates package integrity and keeps everything on D:.
+    # The project already bundles this .NET 8 SDK for scarletimport.
+    $dotnet = Join-Path $cache 'dotnet-sdk-8\dotnet.exe'
+    if (!(Test-Path -LiteralPath $dotnet -PathType Leaf)) {
+        throw "SDK .NET local nao encontrado: $dotnet. Recompile o importador primeiro."
     }
-    Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    if (!(Test-Path -LiteralPath $target -PathType Container)) {
-        New-Item -ItemType Directory -Force -Path $target | Out-Null
+    $projectDir = Join-Path $cache 'python-bootstrap'
+    $project = Join-Path $projectDir 'python-bootstrap.csproj'
+    New-Item -ItemType Directory -Path $projectDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+    $csproj = @'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultItems>false</EnableDefaultItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="python" Version="3.13.16" />
+  </ItemGroup>
+</Project>
+'@
+    Set-Content -LiteralPath $project -Value $csproj -Encoding UTF8
+    $env:NUGET_PACKAGES = $packageRoot
+    $env:DOTNET_CLI_HOME = $cache
+    Write-Host "Restaurando CPython $version pelo NuGet do SDK .NET ja instalado no projeto..."
+    & $dotnet restore $project --packages $packageRoot --source 'https://api.nuget.org/v3/index.json' --disable-parallel --verbosity minimal
+    if ($LASTEXITCODE -ne 0) {
+        throw "NuGet nao conseguiu restaurar Python $version. Confira os erros do dotnet restore acima."
     }
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($pkg, $target)
     if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
-        throw "NuGet Python extraido, mas tools\python.exe nao foi localizado em $target"
+        throw ("Pacote python/$version restaurado, mas o executavel nao apareceu em $exe. " +
+               "Verifique a estrutura do pacote em $packageRoot")
     }
-    & $exe -c 'import sys,venv,ensurepip,ssl; assert sys.version_info[:2] == (3,13)'
-    if ($LASTEXITCODE -ne 0) { throw "Python NuGet nao passou no teste de venv/ensurepip: $exe" }
+    & $exe -c 'import sys,venv,ensurepip,ssl; assert sys.version_info[:3] == (3,13,16)'
+    if ($LASTEXITCODE -ne 0) { throw "CPython NuGet nao passou no teste de venv/ensurepip: $exe" }
     Write-Host "Python isolado pronto: $exe"
     return $exe
 }
-
 function Get-ScarletPython {
     # The previous search only handled a few default installer paths.
     # Scarlet has already used local Python virtual environments; reuse them.
