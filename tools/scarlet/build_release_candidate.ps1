@@ -73,7 +73,9 @@ function Install-ScarletPortablePython {
     $env:NUGET_PACKAGES = $packageRoot
     $env:DOTNET_CLI_HOME = $cache
     Write-Host "Restaurando CPython $version pelo NuGet do SDK .NET ja instalado no projeto..."
-    & $dotnet restore $project --packages $packageRoot --source 'https://api.nuget.org/v3/index.json' --disable-parallel --verbosity minimal
+    # PowerShell functions emit native stdout onto their result stream. Keep
+    # dotnet restore's progress visible without contaminating the returned path.
+    & $dotnet restore $project --packages $packageRoot --source 'https://api.nuget.org/v3/index.json' --disable-parallel --verbosity minimal | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "NuGet nao conseguiu restaurar Python $version. Confira os erros do dotnet restore acima."
     }
@@ -177,7 +179,8 @@ function Get-ScarletPython {
         throw "O executavel -PythonExe informado nao corresponde a CPython x64 compativel: $PythonExe"
     }
     Write-Host "Nenhum Python Windows valido encontrado nos $checked candidatos. Instalando fallback isolado..."
-    return Install-ScarletPortablePython
+    # Return exactly one value: the absolute path to python.exe.
+    return (Install-ScarletPortablePython)
 }
 Push-Location $root
 try {
