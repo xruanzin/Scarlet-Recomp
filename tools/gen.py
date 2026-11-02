@@ -597,6 +597,8 @@ def main():
     ap.add_argument('--chunk-bytes', type=int, default=1500000)  # and about this much C (even compile times)
     ap.add_argument('--big-fn', type=int, default=100000)  # bytes of C from which a function gets its own file
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--game', choices=('auto', 'scarlet'), default='auto',
+                    help="Explicit target; scarlet never inherits ZA or LAS game patches")
     ap.add_argument('--simd', choices=('asm', 'c'),
                     default='asm' if platform.machine().lower() in ('arm64', 'aarch64') else 'c')
     args = ap.parse_args()
@@ -605,7 +607,16 @@ def main():
     m = Module(args.name, args.nso, args.base, args.simd)
     global HOOKS, PATCHES
     main_build = Nso(os.path.join(os.path.dirname(args.nso), 'main')).build_id[:16]
-    if main_build in ZA_BUILDS:  # Pokémon Legends Z-A: its own patches, none of Link's Awakening's (nor its randomizer's)
+    if args.game == 'scarlet':
+        # Deliberately no game-specific patches until individual sites are proven for Scarlet.
+        # The build-id guard prevents accidentally lifting the base game as update 4.0.0.
+        from scarlet.preflight import KNOWN_MAIN_PREFIXES
+        expected = KNOWN_MAIN_PREFIXES['4.0.0']
+        if not main_build.startswith(expected):
+            sys.exit(f"{args.name}: Scarlet 4.0.0 expected main build {expected}, got {main_build}")
+        RANDO_CODE.clear()
+        print(f"{args.name}: Scarlet 4.0.0 (build {main_build}): no ZA/LAS game-specific patches", file=sys.stderr)
+    elif main_build in ZA_BUILDS:  # Pokémon Legends Z-A: its own patches, none of Link's Awakening's (nor its randomizer's)
         RANDO_CODE.clear()
         if args.name == 'main':
             PATCHES.update(za_patches(main_build))

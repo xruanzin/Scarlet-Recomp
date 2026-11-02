@@ -1,218 +1,83 @@
 <div align="center">
 
-<img src="docs/icon/icon_1024.png" alt="ZA Recomp" width="128">
+# Scarlet-Recomp
 
-# ZA Recomp
+**Native Windows runtime for Pokémon Scarlet 4.0.0, based on static recompilation and Vulkan.**
 
-**A native PC port of *Pokémon Legends: Z-A*, built by static recompilation.**
-
-**English** · [Português (Brasil)](README.pt-BR.md)
-
-[Download](https://github.com/Hexveil404/PokeZ-ARecomp/releases/latest) ·
-[Report a bug](https://github.com/Hexveil404/PokeZ-ARecomp/issues) ·
-[macOS port (MonZaMac)](https://github.com/lucabravi/MonZaMac)
+[Português (Brasil)](README.pt-BR.md) · [Known limitations](#known-limitations) · [Release preparation](docs/RELEASE-v1.0.0.md)
 
 </div>
 
----
+> **v1.0.0 preparation — not a verified public installer.** The existing Windows build runs Pokémon Scarlet 4.0.0 in development tests, but a clean-machine installation, the public package and broader compatibility still need verification. Do not label it a finished, universally playable release.
 
-ZA Recomp turns the game's Nintendo Switch code into a native Windows program. The ARM64 code is translated ahead of
-time into C and compiled for x86-64 on your PC, and the Switch's operating system and GPU (NVN) are reimplemented on
-top of Vulkan. No emulator runs while you play.
+## What this project is
 
-It is built on **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by Peiikai, the static recompiler made for
-*The Legend of Zelda: Link's Awakening*.
+Scarlet-Recomp is an independent, unofficial effort to run **Pokémon Scarlet 4.0.0** on Windows using ahead-of-time (AOT) recompilation of code from a user's own game dump. The host runtime implements Nintendo Switch services and NVN graphics through Vulkan; the goal is not to launch the game inside a suyu-based emulator.
 
-> [!IMPORTANT]
-> **You need your own copy of the game.** ZA Recomp does not include any game files, code, assets or fonts.
+The repository retains an architecture derived from [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) and [LASRecomp](https://github.com/peiikai/LASRecomp), with Scarlet-specific runtime changes, an NSP/XCI importer, and a custom Windows launcher.
 
-## Contents
+## Current features
 
-- [Screenshots](#screenshots)
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation) ([Mega Dimension DLC](#mega-dimension-dlc))
-- [Controls](#controls)
-- [Saves](#saves)
-- [Mods](#mods)
-- [Troubleshooting](#troubleshooting)
-- [Building from source](#building-from-source)
-- [Credits](#credits)
-- [Legal](#legal)
+- Windows 11 native runtime using Vulkan and AOT-compiled guest modules
+- Scarlet launcher with file/folder selection for NSP/XCI, local key-file pickers and import status
+- Automatic Scarlet-specific early TLS/allocator startup: no experimental toggle or boot environment variables required
+- Base game + **update 4.0.0** import path, with optional DLC handling
+- Keyboard/controller handling and a virtual keyboard for name entry
+- Selectable 30 / 60 / 120 / 240 FPS **targets**; 30 FPS is the tested baseline and higher targets are experimental
+- Vulkan graphical fixes and optional upscaling features under development
 
-## Screenshots
+Features above describe implemented development paths, not a guarantee that they work across all PCs, game scenes or configurations.
 
-| | |
-|---|---|
-| ![Lumiose City at 60 fps](docs/screenshots/lumiose.jpg) | ![The start screen](docs/screenshots/start-screen.png) |
-| Lumiose City at 60 fps | The start screen, with your team |
-| ![The game's menu](docs/screenshots/menu.jpg) | ![The bag](docs/screenshots/bag.jpg) |
-| The game's menu (with a translation mod) | The bag |
+## Requirements and game files
 
-## Features
+- Windows 11 64-bit; a Vulkan-capable graphics driver
+- A local, legally obtained copy of Pokémon Scarlet and the matching **4.0.0** update
+- Your own decryption keys for the local importer, where required
+- A game-derived `lasgame.dll` AOT build generated **locally from your own game files**, not distributed by this project
 
-**Performance**
-- 60 fps at the game's normal speed, or 30 fps as on the Switch
-- Internal resolution from 25% up to 4x (1x = 1080p), plus Dynamic and Match display
-- Frame pacing option (Smooth / Standard) for displays where the frame rate looks uneven
+**No NSP/XCI, extracted game files, decryption keys, tickets, saves, or game-derived AOT DLL should be committed or attached to a public release.**
 
-**Graphics** (all optional, off by default)
-- Upscaling with AMD FSR 1, anti-aliasing with SMAA or AMD FSR 2 (temporal), sharpening
-- HDR output (HDR10 / scRGB)
-- Ambient occlusion (GTAO), indirect light (screen-space GI) and water reflections
-- Sharper shadows (higher shadow map resolution) and high-quality texture filtering
-- HD texture packs (`textures/hd/`)
+## Official prerequisite downloads
 
-**Controls**
-- Any SDL3 controller: Xbox, PlayStation (DualShock 4 / DualSense), Switch Pro, Steam Deck and more
-- Keyboard and mouse, with a mouse-driven camera
-- Every button and key can be rebound; button icons match your controller (Xbox, PlayStation, Nintendo, Steam Deck,
-  keyboard)
-- Battle moves by position, right stick snap to axis
+- [Microsoft Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe) — if required by Windows
+- [NVIDIA graphics driver](https://www.nvidia.com/Download/index.aspx) or [AMD graphics driver](https://www.amd.com/en/support/download/drivers.html) — up-to-date Vulkan support
+- [Python for Windows](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) and [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — for **compilation and local AOT generation**, not for running an already built launcher
+- [Full prerequisites and credits](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
 
-**Start screen**
-- Sets the game up from your own files and compiles it once on your PC
-- Mods manager (romfs mods), save import / export and backups
-- English and Portuguese (Brazil)
+The ZIP packager now includes `lasgen/`, the Zig compiler (`zig/`), `gamelib-src/` and a self-contained importer, following the ZA Recomp approach. The Scarlet launcher invokes local AOT generation from the player's own files. **A clean-machine end-to-end test is still required** before claiming that the ZIP works out of the box.
 
-## Requirements
+## Preparing the distributable runtime ZIP
 
-| | |
-|---|---|
-| **OS** | Windows 10 (1903 or newer) or Windows 11, 64-bit |
-| **CPU** | x86-64 with AVX2 (2013 or newer). Older CPUs with SSE4.2 also work, but compile and run slower |
-| **GPU** | Vulkan 1.2 or newer (1.3 recommended) with an up-to-date driver |
-| **RAM** | 8 GB (16 GB recommended) |
-| **Disk** | About 12 GB free |
-| **Game** | Pokémon Legends: Z-A **1.0.0, 2.0.0 or 2.0.2**, optionally with the *Mega Dimension* DLC |
+After locally building the Windows runtime, the maintainer can run:
 
-Linux is not officially supported yet. On a Mac, use [MonZaMac](https://github.com/lucabravi/MonZaMac) by
-[@lucabravi](https://github.com/lucabravi), a native macOS port based on this project.
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\create_release_zip.ps1
+```
 
-## Installation
+The package explicitly excludes game dumps, keys, saves and `lasgame.dll`. Audit the included third-party licenses and test on a clean Windows machine before publishing.
 
-1. Download the latest `ZA-Recomp-windows.zip` from [Releases](https://github.com/Hexveil404/PokeZ-ARecomp/releases/latest)
-   and extract it to a folder of your choice (for example `C:\Games\ZA Recomp`).
-2. Prepare your own copy of the game in a folder, in one of two ways:
-   - **Extracted game**: the `exefs` and `romfs` folders, as an emulator or your Switch extracts them. No keys needed.
-   - **Dump**: the base game (`.xci` or `.nsp`), optionally the update and the *Mega Dimension* DLC (`.nsp`), together with the
-     `prod.keys` from your own Switch.
-3. Run `lasrecomp.exe`. On the start screen, choose that folder (or drag it onto the window) and click
-   **Set up the game**.
-4. The game's files are read and its code is compiled for your PC. This takes 10 to 30 minutes depending on your CPU
-   and happens **only once**. After an update of ZA Recomp, only what changed is compiled again.
-5. Click **Play**.
+## Building for development
 
-Your own files are never changed. Optionally, import your console's fonts on the start screen (**Settings > Files**)
-for the original text and button icons; without them a substitute font is used.
+This is **not yet a standalone binary installation guide**. The current incremental build assumes the owner's existing AOT output:
 
-### Mega Dimension DLC
+```powershell
+# Windows, with development dependencies and an existing Scarlet AOT build
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1
+```
 
-The DLC is supported through the **dump** route (the extracted `exefs` / `romfs` folders don't include it):
+It does **not** create `lasgame.dll` on its own. For the AOT preparation and requirements, see [Scarlet bootstrap notes](docs/SCARLET-BOOTSTRAP.md) and [Windows launcher details](docs/SCARLET-ORIGINAL-LAUNCHER.md). Those documents contain historical development notes, not a verified clean-install tutorial.
 
-1. Put these files together in one folder: the base game (`.xci` or `.nsp`), the **update** (`.nsp`, version 2.0.0 or
-   newer - the DLC's content comes with it), the **DLC** (`.nsp`) and the `prod.keys` from your Switch (plus
-   `title.keys` if the start screen asks for it).
-2. Choose that folder on the start screen and click **Set up the game**.
-3. The start screen shows **+ DLC** next to the game version when it was found.
+## Known limitations
 
-Already set up without the DLC? Click **Change game folder**, choose the folder again with the DLC added and set it up
-again. Your saves and settings are kept.
+- **The character photograph on the enrollment/matriculation form is black.** The original in-game photograph generation remains unresolved. No external-image fallback is part of this release plan.
+- Visual issues may remain in some character, sky or intermediate rendering passes.
+- Higher FPS options have not been validated for physics, timing, animation and stability.
+- Import, AOT setup and launch need clean Windows machine verification before distributing a ready-to-use download.
 
-## Controls
+See [v1.0.0 release draft](docs/RELEASE-v1.0.0.md) and [release checklist](docs/RELEASE-CHECKLIST-v1.0.0.md).
 
-Press **F1** in game (or open **Settings** on the start screen) for the settings menu: frame rate, resolution,
-graphics options, controls, button icons and more. Settings are saved immediately to `larecomp.ini`.
+## Credits and legal
 
-| Keyboard (default) | Switch |
-|---|---|
-| W A S D | Left stick |
-| Arrow keys | D-pad |
-| K / J / L / I | A / B / X / Y |
-| Q / E | L / R |
-| 1 / 3 | ZL / ZR |
-| Enter / Backspace | + / − |
-| F / Numpad 0 | Left / right stick click |
-| Numpad 8 / 4 / 5 / 6 | Right stick |
-| Mouse | Camera; left button ZR (throw), right button ZL (aim) |
+This is a **community project**, not affiliated with Nintendo, Game Freak or The Pokémon Company. Pokémon and all associated game content belong to their respective rights holders.
 
-| Key | Action |
-|---|---|
-| F1 / Esc | Settings menu |
-| F11 / Alt+Enter | Fullscreen |
-| F10 | Screenshot (`screenshots/`) |
-
-All bindings can be changed in **Settings > Controls > Configure inputs**.
-
-## Saves
-
-Saves are the game's own files, kept in `save/save_0/` next to `lasrecomp.exe`. They are the same as on the Switch, so
-they move between the two without conversion. The **Saves** page on the start screen imports, exports and restores
-backups; every import keeps your previous save as a backup.
-
-- **Switch → PC**: back up the save with **JKSV** on your Switch, copy the backup folder (it holds a file named `main`)
-  to your PC and import it on the **Saves** page.
-- **PC → Switch**: export the save, copy its files into a JKSV backup folder on the SD card and restore it with JKSV.
-- **Game versions**: a 2.0.x save needs the game set up with the 2.0.x update. Version 2.0.0 converts a 1.0.0 save the
-  first time it saves, and the converted save no longer loads on 1.0.0. Keep a backup.
-
-## Mods
-
-Mods that replace game files (a `romfs` folder): translations, textures, models. Install them from the **Mods** page
-(or drop the mod onto the window); they are kept in `mods/`. When two mods replace the same file, the one higher in the
-list wins.
-
-Mods that change the game's code (`exefs`, IPS patches, cheat plugins) do not work with a recompiled game.
-
-## Troubleshooting
-
-- **Logs**: each session writes `logs/play.log` next to the exe (the previous one is kept as `logs/play-anterior.log`).
-  Please attach it to any bug report.
-- **Graphics driver errors** ("Your graphics driver crashed", a GPU page fault): open
-  **Settings > Video > Compatibility** and turn the options off one at a time. They apply from the next start.
-- **Low frame rate**: lower the internal resolution or turn on Dynamic resolution, and turn off the optional graphics
-  features.
-- **Report a bug**: [open an issue](https://github.com/Hexveil404/PokeZ-ARecomp/issues) with your GPU, driver version,
-  game version and `logs/play.log`.
-
-## Building from source
-
-ZA Recomp builds on Windows with MSYS2 (UCRT64: clang, SDL3, FFmpeg, shaderc, Vulkan headers) and Python 3. See
-[docs/BUILD-windows.md](docs/BUILD-windows.md) for the setup. `bash tools/za/dist.sh` builds the release folder
-(`build/dist-za/ZA Recomp/`; `ZIP=1` for the zip), which ships without any game code: the start screen compiles it on
-the player's PC.
-
-Where things are: the recompiler is in `tools/`, the runtime in `runtime/` (HLE services, the NVN implementation in
-`runtime/nvn/`, the Vulkan backend in `runtime/nvn/vulkan/` and the Maxwell shader translator in
-`runtime/nvn/maxwell/`), and the Pokémon Z-A tools in `tools/za/`.
-
-Contributions are welcome. Never commit or attach Nintendo files (game files, extracted data, generated code, fonts,
-saves).
-
-## Credits
-
-- **[Peiikai](https://github.com/peiikai)**: creator of [LAS Recomp](https://github.com/peiikai/LASRecomp), the static
-  recompiler, runtime, renderers and shader translator this port is built on.
-- **[Hexveil404](https://github.com/Hexveil404)**: the Pokémon Legends: Z-A port.
-- **ZA Recomp contributors**: [@Primus92](https://github.com/Primus92), [@Atterax](https://github.com/Atterax),
-  [@wimw85](https://github.com/wimw85), [@lucabravi](https://github.com/lucabravi) and everyone who reported issues
-  and tested builds.
-- **LAS Recomp contributors**: see [docs/LASRecomp-README.md](docs/LASRecomp-README.md#credits).
-- **[Ryujinx](https://github.com/Ryujinx/Ryujinx)**, used as a behavioural reference (no code taken),
-  **[envytools](https://github.com/envytools/envytools)** and **[Switchbrew](https://switchbrew.org)** for GPU and
-  system documentation.
-- **Libraries**: [SDL 3](https://libsdl.org), [FFmpeg](https://ffmpeg.org), [Dear ImGui](https://github.com/ocornut/imgui),
-  [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator),
-  [shaderc](https://github.com/google/shaderc), [SMAA](https://github.com/iryoku/smaa),
-  [AMD FidelityFX FSR 1 and FSR 2](https://github.com/GPUOpen-Effects), [XeGTAO](https://github.com/GameTechDev/XeGTAO),
-  [LibHac](https://github.com/Thealexbarney/LibHac), [Zig](https://ziglang.org) and the others listed in
-  [docs/LASRecomp-README.md](docs/LASRecomp-README.md#license).
-
-## Legal
-
-ZA Recomp is a fan project. It is not affiliated with, endorsed or sponsored by Nintendo, Game Freak, Creatures or
-The Pokémon Company. *Pokémon* and *Pokémon Legends: Z-A* are trademarks of their respective owners. No game files,
-code, assets or fonts are included; you must provide your own legally obtained copy of the game.
-
-The code is released under the [MIT License](LICENSE) (LAS Recomp © Peiikai). Third-party components keep their own
-licenses; see [docs/LASRecomp-README.md](docs/LASRecomp-README.md#license).
+Architecture and underlying source come from [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and other upstream contributors. Retain upstream notices and third-party licenses. See [LICENSE](LICENSE); its permission does not extend to proprietary Pokémon Scarlet game content.

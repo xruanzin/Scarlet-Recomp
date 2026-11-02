@@ -1390,6 +1390,7 @@ static uint32_t tex_wh[2][64][2];
 static VkFormat pass_color[8], pass_depth, pass_stencil;
 static uint32_t pass_ncolor, pass_samples = 1, pass_w, pass_h, pass_layers = 1;
 static int debug_pass_no;
+static RtState debug_pass_rt;  // attachments actually begun; st.rt may already name the next pass
 // (draw_indirect) the draw being made reads its parameters on the GPU: offset in the guest memory window's buffer
 static bool g_ind_gpu;
 static VkDeviceSize g_ind_off;
@@ -1456,7 +1457,10 @@ static void vk_end_pass_at(int line) {
     if (prof && line < 4096) prof_end_line[line]++;
     rec_CmdEndRendering(vk_cmd());
     in_pass = false;
-    if (g_debug_frame && st.rt.ncolor && st.rt.color[0] && st.rt.color[0]->backend) {
+    if (g_debug_frame && debug_pass_rt.ncolor && debug_pass_rt.color[0] && debug_pass_rt.color[0]->backend) {
+        // rt_paths_init() chdirs into LARECOMP_DATA_ROOT (userdata in isolated runs).
+        // Relative build/pass_*.png paths must exist there, NOT beside scarlet.exe.
+        mkdir("build", 0755);
         char path[256];
         static uint64_t debug_pass_frame = ~0ull;
         static int multi = -1;
@@ -1464,14 +1468,21 @@ static void vk_end_pass_at(int line) {
         if (multi && renderer_present_count() != debug_pass_frame) { debug_pass_frame = renderer_present_count(); debug_pass_no = 0; }
         if (multi) snprintf(path, sizeof path, "build/pass_%llu_%03d.png", (unsigned long long)debug_pass_frame, debug_pass_no++);
         else snprintf(path, sizeof path, "build/pass_%03d.png", debug_pass_no++);
-        renderer_save_texture_tex(st.rt.color[0]->backend, path);
-        for (int ci = 1; ci < st.rt.ncolor; ci++) {  // (multiple render targets: the others as _c<i>)
-            if (!st.rt.color[ci] || !st.rt.color[ci]->backend) continue;
+        LOG("[pass] %s end-line %d colors %d", path, line, debug_pass_rt.ncolor);
+        for (int ci = 0; ci < debug_pass_rt.ncolor; ci++) {
+            NvnTexture *t = debug_pass_rt.color[ci];
+            if (t) LOG(" c%d=%p/f%#x", ci, (void *)t, t->format);
+        }
+        if (debug_pass_rt.depth) LOG(" depth=%p/f%#x", (void *)debug_pass_rt.depth, debug_pass_rt.depth->format);
+        LOG("\n");
+        renderer_save_texture_tex(debug_pass_rt.color[0]->backend, path);
+        for (int ci = 1; ci < debug_pass_rt.ncolor; ci++) {  // (multiple render targets: the others as _c<i>)
+            if (!debug_pass_rt.color[ci] || !debug_pass_rt.color[ci]->backend) continue;
             char cpath[300];
             snprintf(cpath, sizeof cpath, "%.*s_c%d.png", (int)strlen(path) - 4, path, ci);
-            renderer_save_texture_tex(st.rt.color[ci]->backend, cpath);
+            renderer_save_texture_tex(debug_pass_rt.color[ci]->backend, cpath);
         }
-        TexBackend *tb = st.rt.color[0]->backend;
+        TexBackend *tb = debug_pass_rt.color[0]->backend;
         if (tb->width == 1 && tb->height == 1 && tb->format == VK_FORMAT_R32G32B32A32_SFLOAT) {  // (exposure: the raw value)
             VkSpan out = vk_readback(16);
             VkBufferImageCopy c = {.bufferOffset = out.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {1, 1, 1}};
@@ -1489,7 +1500,7 @@ static void vk_end_pass_at(int line) {
             char lpath[300];
             snprintf(lpath, sizeof lpath, "%.*s_l%u.png", (int)strlen(path) - 4, path, ly);
             raw_layer = ly;
-            renderer_save_texture_tex(st.rt.color[0]->backend, lpath);
+            renderer_save_texture_tex(debug_pass_rt.color[0]->backend, lpath);
             raw_layer = 0;
         }
     }
@@ -1684,6 +1695,7 @@ static void begin_pass(void) {
         LOG(", samples %u\n", pass_samples);
     }
     rec_CmdBeginRendering(cb, &ri);
+    if (g_debug_frame) debug_pass_rt = st.rt;
     ss_forget();  // (whatever ran between the passes may have set its own state)
     in_pass = true;
     vp_sx = pass_sx; vp_sy = pass_sy; vp_ox = 0; vp_oy = 0;
@@ -2117,6 +2129,7 @@ static inline const GWin *gwin(void) {
 // bytes of the window the game has set up: the heap size, or the whole physical region
 static uint64_t gwin_want(void) { return gwin()->phys ? gwin_.max : kernel_heap_size(); }
 
+static uint64_t hmix(uint64_t h, const void *p, size_t n); // forward declaration; definition below
 static void gmem_window_get(uint64_t *lo, uint64_t *len);  // (the guest-heap import window, below)
 // Translates both stages (false: failed, logged). Holds the translator for the whole program.
 static bool translate_program_now(Prog *p) {
@@ -2130,6 +2143,32 @@ static bool translate_program_now(Prog *p) {
         p->fkey.vs_out_mask = p->vi->out_mask;
         p->fi = p->code[1] ? maxwell_translate((const uint8_t *)(uintptr_t)p->code[1], p->cmax[1], STAGE_FRAGMENT, &p->fkey)
                            : maxwell_empty_fragment();
+    }
+    // Provenance from the F9 captures (two scene frames). Dump only these original
+    // game-derived fragment shaders; never commit the generated GLSL or assembly.
+    // They live under the isolated LARECOMP_DATA_ROOT selected by graphics_verify.ps1.
+    if (ENV("SCARLET_DUMP_FOCUS_SHADERS") && p->code[1] && p->fi && p->fi->msl) {
+        uint64_t hash = hmix(1469598103934665603ull,
+                             (const void *)(uintptr_t)(p->code[1] + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull || hash == 0x9543b220d1d35f7bull ||
+            hash == 0x2076c99beec00951ull) {
+            mkdir("build", 0755);
+            mkdir("build/scarlet-focus", 0755);
+            char path[128];
+            snprintf(path, sizeof path, "build/scarlet-focus/fs_%016llx_%u.frag",
+                     (unsigned long long)hash, (unsigned)p->fkey.scarlet_hair_mode);
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                fputs(p->fi->msl, f);
+                fclose(f);
+                LOG("[scarlet-focus] fs %016llx -> %s\n", (unsigned long long)hash, path);
+            } else {
+                LOG("[scarlet-focus] cannot write %s\n", path);
+            }
+            // maxwell_disassemble() is a no-op stub in this runtime; do not
+            // create zero-byte .nvasm files or misleading "saved" log lines.
+            // The generated GLSL above is the supported diagnostic export.
+        }
     }
     if (ENV("LARECOMP_DUMP_GLSL")) {  // (debug) build/glsl/<code address>.{vert,frag}[.asm]: source and disassembly
         mkdir("build/glsl", 0755);
@@ -2463,6 +2502,27 @@ static VkFormat vertex_format_supported(VkFormat f) {
     }
 }
 
+// Source element sizes for validating the actual NVN vertex layout. Fallbacks
+// from RGB8/RGB16 to RGBA8/RGBA16 require more bytes than the guest supplied;
+// report them explicitly rather than silently treating this as a valid format.
+static unsigned vertex_source_bytes(uint32_t f) {
+    if (f >= 0x01 && f <= 0x04) return 1;
+    if (f >= 0x05 && f <= 0x09) return 2;
+    if (f >= 0x0A && f <= 0x0C) return 4;
+    if (f >= 0x0D && f <= 0x10) return 2;
+    if (f >= 0x11 && f <= 0x15) return 4;
+    if (f >= 0x16 && f <= 0x18) return 8;
+    if (f >= 0x19 && f <= 0x1C) return 3;
+    if (f >= 0x1D && f <= 0x21) return 6;
+    if (f >= 0x22 && f <= 0x24) return 12;
+    if (f >= 0x25 && f <= 0x28) return 4;
+    if (f >= 0x29 && f <= 0x2D) return 8;
+    if (f >= 0x2E && f <= 0x30) return 16;
+    if (f == 0x3D || f == 0x3F || f == 0x40 || f == 0x69) return 4;
+    if (f == 0x51) return 1;
+    return 0;
+}
+
 static VkBlendFactor blend_factor(uint8_t f) {
     switch (f) {
     case 1: return VK_BLEND_FACTOR_ZERO;
@@ -2641,10 +2701,31 @@ static void pipe_key_fill(PipeKey *k, Prog *pr, const PipeIn *in, const VkFormat
             l->used_streams |= 1u << ZERO_BINDING;
             continue;
         }
-        l->attr_fmt[i] = vertex_format_supported(vertex_format(fmt));
+        VkFormat native = vertex_format(fmt);
+        VkFormat supported = vertex_format_supported(native);
+        l->attr_fmt[i] = supported;
         l->attr_off[i] = off;
         l->attr_bind[i] = stream;
         l->used_streams |= 1u << stream;
+        // A passive, capped audit for Scarlet's close-range LOD meshes.
+        // An unsupported RGB8/16 attribute must be repacked before the
+        // RGBA fallback can be correct (this is NOT done by changing VkFormat).
+        static int vertex_audit = -1;
+        static unsigned vertex_warnings;
+        if (vertex_audit < 0) vertex_audit = ENV("LARECOMP_VK_VERTEX_AUDIT") != NULL;
+        if (vertex_audit && vertex_warnings < 80) {
+            unsigned src_bytes = vertex_source_bytes(fmt);
+            unsigned stride = stream < (uint32_t)in->nstream ? in->stream[stream][0] : 0;
+            unsigned fetched_bytes = src_bytes;
+            if (native != supported && src_bytes == 3) fetched_bytes = 4;
+            if (native != supported && src_bytes == 6) fetched_bytes = 8;
+            if (native != supported || (stride && src_bytes && off + src_bytes > stride)) {
+                vertex_warnings++;
+                LOG("[vtxaudit] attr %d fmt %#x VkFormat %d -> %d stream %u offset %u stride %u sourceBytes %u fetchBytes %u%s\n",
+                    i, fmt, (int)native, (int)supported, stream, off, stride,
+                    src_bytes, fetched_bytes, native != supported ? " UNSAFE_FALLBACK" : " OUTSIDE_STRIDE");
+            }
+        }
     }
     for (int s = 0; s < 16; s++) {
         if (!(l->used_streams & (1u << s))) continue;
@@ -2816,7 +2897,7 @@ static void set_vertex_input(VkCommandBuffer cb, const VtxLayout *l) {
 
 // ================================================================== feedback snapshots (renderer.m resolve_feedback)
 static NvnTexture *feedback_tex[4];
-static VkImageView feedback_view[4];
+static TexBackend *feedback_image[4];
 static int nfeedback;
 static uint64_t g_cur_fs_hash;
 static NvnTexture *snap_tex[8];
@@ -2861,7 +2942,8 @@ static TexBackend *snapshot_image(NvnTexture *t, TexBackend *src) {
         d->mem = VK_NULL_HANDLE;
     }
     if (!d->image) {
-        VkImageCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = src->format,
+        VkImageCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT,
+                                .imageType = VK_IMAGE_TYPE_2D, .format = src->format,
                                 .extent = {src->width, src->height, 1}, .mipLevels = 1, .arrayLayers = 1,
                                 .samples = (VkSampleCountFlagBits)src->samples, .tiling = VK_IMAGE_TILING_OPTIMAL,
                                 .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
@@ -3108,6 +3190,8 @@ uint32_t nvn_window_origin(void);
 // a crash in live_remove when the game freed textures walking into a new area of the city.
 void vk_exec_texture_destroyed(NvnTexture *t) {
     bool rt = false;
+    for (int i = 0; i < 8; i++) if (debug_pass_rt.color[i] == t) debug_pass_rt.color[i] = NULL;
+    if (debug_pass_rt.depth == t) debug_pass_rt.depth = NULL;
     for (int i = 0; i < 8; i++) if (st.rt.color[i] == t) st.rt.color[i] = NULL, rt = true;
     if (st.rt.depth == t) st.rt.depth = NULL, rt = true;
     if (rt) st.rt_dirty = true;  // (an open pass keeps its views: they are destroyed once the GPU is done)
@@ -3203,11 +3287,9 @@ static void resolve_feedback(Prog *pr) {
             TexBackend *src = vk_tex(t, true);
             Snap *existing = NULL;
             for (int k = 0; k < nsnaps; k++) if (snaps[k].key == t && snaps[k].copy.image) existing = &snaps[k];
-            VkImageAspectFlags sa = src->aspect & VK_IMAGE_ASPECT_DEPTH_BIT ? VK_IMAGE_ASPECT_DEPTH_BIT : src->aspect;
-            static const VkComponentMapping id = {0};
             if (!nosnap && si >= 0 && (snap_ok[si] || self_write) && existing) {
                 feedback_tex[nfeedback] = t;
-                feedback_view[nfeedback++] = vk_image_view(&existing->copy, VK_IMAGE_VIEW_TYPE_2D, src->format, 0, 1, 0, 1, id, sa);
+                feedback_image[nfeedback++] = &existing->copy;
                 continue;
             }
             stat_feedback_copies++;
@@ -3230,7 +3312,7 @@ static void resolve_feedback(Prog *pr) {
                 cb = vk_cmd();
             }
             feedback_tex[nfeedback] = t;
-            feedback_view[nfeedback++] = vk_image_view(dst, VK_IMAGE_VIEW_TYPE_2D, src->format, 0, 1, 0, 1, id, sa);
+            feedback_image[nfeedback++] = dst;
             if (si < 0) { static int rr; si = rr++ & 7; snap_tex[si] = t; }
             snap_ok[si] = true;
             st.rt_dirty = true;
@@ -4815,8 +4897,10 @@ static bool xm_on(void) {
         const char *e = ENV("LARECOMP_VK_XFB_MIRROR");
         int cs = g_settings.gpu_compat[GPU_XFB_MIRROR];  // (F1 > Compatibility)
         on = e ? atoi(e) != 0 : cs != GPU_AUTO ? cs == GPU_ON : g_vk.props.vendorID != 0x1002;
-        if (!on && !e) LOG("[vk] transform feedback mirror off (%s; LARECOMP_VK_XFB_MIRROR=1: on)\n",
-                           cs == GPU_OFF ? "F1 > Compatibility" : "this AMD GPU, F1 > Compatibility to turn it on");
+        if (e) LOG("[vk] transform feedback mirror %s (LARECOMP_VK_XFB_MIRROR=%s; explicit)\n",
+                   on ? "on" : "off", e);
+        else if (!on) LOG("[vk] transform feedback mirror off (%s; LARECOMP_VK_XFB_MIRROR=1: on)\n",
+                          cs == GPU_OFF ? "F1 > Compatibility" : "this AMD GPU, F1 > Compatibility to turn it on");
     }
     return on && g_vk.host_import;
 }
@@ -5292,7 +5376,7 @@ static bool guest_direct(int kind, uint64_t addr, uint64_t size, VkBuffer *buf, 
         return true;
     }
     if (addr + size > gwin_base + gmem_lo + gmem_size && gwin_want() != gmem_tried) { gmem_tried = gwin_want(); gmem_info(); }
-    if (gmem_lo && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }  // (the mirror needs no import)
+    if (kind == 0 && gmem_lo && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }  // XFB mirrors hold vertex data, NEVER index data
     if (!GM_IN(addr, size)) return false;
     if (vcache_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }
     if (kind == 0 && xm_lookup(addr, size, buf, off)) { stat_vtx_cached += size; return true; }
@@ -5400,6 +5484,109 @@ static void shadow_slot_check(int stage, const ShaderTexture *st_, int i, uint64
     *view = vk_dummy_depth_view(st_->type);
 }
 
+// Scarlet sky-band investigation. Passive and opt-in: records the texture/view/sampler bindings
+// used by fragment shaders in gameplay, without changing draw commands or descriptor contents.
+// SCARLET_SKY_AUDIT=1; SCARLET_SKY_FROM_FRAME=600 (default). At most 512 distinct bindings.
+static void scarlet_sky_audit_binding(int stage, const ShaderTexture *shader, int slot, uint64_t handle,
+                                       const NvnTexEntry *entry, VkImageView view) {
+    static int enabled = -1;
+    static uint64_t from_frame = 600, focus_fs;
+    static unsigned nseen;
+    static struct { uint64_t fs, handle, view_hash; int slot; } seen[512];
+    if (enabled < 0) {
+        const char *e = ENV("SCARLET_SKY_AUDIT");
+        enabled = e && atoi(e) != 0;
+        const char *from = ENV("SCARLET_SKY_FROM_FRAME");
+        if (from && *from) from_frame = strtoull(from, NULL, 10);
+        const char *focus = ENV("SCARLET_GRAPHICS_FSHASH");
+        if (focus && *focus) focus_fs = strtoull(focus, NULL, 16);
+    }
+    if (!enabled || stage != 1 || !handle || !entry || !entry->tex || nseen >= 512 ||
+        (focus_fs && g_cur_fs_hash != focus_fs)) return;
+    extern uint64_t vk_frame_counter(void);
+    uint64_t frame = vk_frame_counter();
+    if (frame < from_frame) return;
+    uint64_t vh = entry->has_view ? hash_words(0, &entry->view, sizeof entry->view) : 0;
+    for (unsigned k = 0; k < nseen; k++)
+        if (seen[k].fs == g_cur_fs_hash && seen[k].handle == handle && seen[k].view_hash == vh &&
+            seen[k].slot == slot) return;
+    seen[nseen].fs = g_cur_fs_hash;
+    seen[nseen].handle = handle;
+    seen[nseen].view_hash = vh;
+    seen[nseen++].slot = slot;
+    const NvnTexture *t = entry->tex;
+    const TexBackend *b = t->backend;
+    uint32_t smp_index = (uint32_t)(handle >> 20) & 0xFFF;
+    const NvnSamplerDesc *sd = st.spool && smp_index < (uint32_t)st.spool->count
+        ? &((NvnSamplerDesc *)st.spool->entries)[smp_index] : NULL;
+    LOG("[skyaudit] frame %llu fs %016llx slot %d type %d shadow %u stencil %u "
+        "handle %#llx view_valid %d tex %p target %u fmt %#x %ux%ux%u "
+        "vkfmt %d vktype %d levels %u layers %u viewmask %#x lv %u+%u layer %u+%u "
+        "sampler min %u mag %u wrap %u/%u/%u bias %.2f lod %.2f-%.2f\n",
+        (unsigned long long)frame, (unsigned long long)g_cur_fs_hash, slot, shader->type,
+        (unsigned)shader->shadow, (unsigned)shader->stencil, (unsigned long long)handle,
+        view != VK_NULL_HANDLE, (const void *)t, t->target, t->format, t->width, t->height, t->depth,
+        b ? b->format : 0, b ? b->base_type : 0, b ? b->levels : 0, b ? b->layers : 0,
+        entry->has_view ? entry->view.setmask : 0,
+        entry->has_view ? entry->view.base_level : 0, entry->has_view ? entry->view.num_levels : 0,
+        entry->has_view ? entry->view.min_layer : 0, entry->has_view ? entry->view.num_layers : 0,
+        sd ? sd->min_filter : 0, sd ? sd->mag_filter : 0,
+        sd ? sd->wrap[0] : 0, sd ? sd->wrap[1] : 0, sd ? sd->wrap[2] : 0,
+        sd ? sd->lod_bias : 0.0, sd ? sd->lod_min : 0.0, sd ? sd->lod_max : 0.0);
+}
+
+// Opt-in draw provenance for Scarlet's hair and sky: connect the shader seen by the
+// texture audit with its VS/FS code addresses, colour target, and fragment constant
+// buffer bindings. No guest memory reads, shader changes or Vulkan commands here.
+// SCARLET_GRAPHICS_AUDIT=1; SCARLET_GRAPHICS_FROM_FRAME=600; optional
+// SCARLET_GRAPHICS_FSHASH=<16 hex digits> focuses both this and [skyaudit].
+// Bounded to 512 distinct (FS, VS, first colour target) combinations.
+static void scarlet_graphics_audit_draw(const Prog *p) {
+    static int enabled = -1;
+    static uint64_t from_frame = 600, focus_fs;
+    static unsigned nseen;
+    static struct { uint64_t fs, vs; const NvnTexture *rt; } seen[512];
+    if (enabled < 0) {
+        const char *e = ENV("SCARLET_GRAPHICS_AUDIT");
+        enabled = e && atoi(e) != 0;
+        const char *from = ENV("SCARLET_GRAPHICS_FROM_FRAME");
+        if (from && *from) from_frame = strtoull(from, NULL, 10);
+        const char *focus = ENV("SCARLET_GRAPHICS_FSHASH");
+        if (focus && *focus) focus_fs = strtoull(focus, NULL, 16);
+    }
+    if (!enabled || !p || !p->fi || !st.program || nseen >= 512 ||
+        (focus_fs && focus_fs != g_cur_fs_hash)) return;
+    extern uint64_t vk_frame_counter(void);
+    uint64_t frame = vk_frame_counter();
+    if (frame < from_frame) return;
+    uint64_t vs = st.program->stages[0].code_addr;
+    const NvnTexture *rt = st.rt.ncolor ? st.rt.color[0] : NULL;
+    for (unsigned i = 0; i < nseen; i++)
+        if (seen[i].fs == g_cur_fs_hash && seen[i].vs == vs && seen[i].rt == rt) return;
+    seen[nseen].fs = g_cur_fs_hash;
+    seen[nseen].vs = vs;
+    seen[nseen++].rt = rt;
+    LOG("[gfxaudit] frame %llu fs %016llx vs_code %#llx fs_code %#llx ntex %d fcb_mask %#x "
+        "rt_count %d rt0 %p depth %p viewport %.0f,%.0f,%.0f,%.0f\n",
+        (unsigned long long)frame, (unsigned long long)g_cur_fs_hash, (unsigned long long)vs,
+        (unsigned long long)st.program->stages[1].code_addr, p->fi->ntex, p->fi->cbuf_mask,
+        st.rt.ncolor, (const void *)rt, (void *)st.rt.depth,
+        st.viewport[0][0], st.viewport[0][1], st.viewport[0][2], st.viewport[0][3]);
+    for (int i = 0; i < st.rt.ncolor && i < 8; i++) {
+        const NvnTexture *t = st.rt.color[i];
+        if (t) LOG("[gfxaudit] fs %016llx rt%d %p %ux%u fmt %#x\n",
+                   (unsigned long long)g_cur_fs_hash, i, (const void *)t,
+                   t->width, t->height, t->format);
+    }
+    for (int i = 0; i < 18; i++) {
+        if (!((p->fi->cbuf_mask >> i) & 1u)) continue;
+        const Range *b = &st.ubuf[1][i];
+        LOG("[gfxaudit] fs %016llx fcb%d addr %#llx bytes %llu\n",
+            (unsigned long long)g_cur_fs_hash, i, (unsigned long long)b->addr,
+            (unsigned long long)b->size);
+    }
+}
+
 static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo *out, float sc[2], uint32_t wh[2], float fr[2]) {
     ShaderTexture *st_ = &si->tex[i];
     int slot = ((int)st_->handle_offset - 0x20) / 8;  // 64-bit handles from offset 0x20
@@ -5461,8 +5648,7 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
             }
             for (int k = 0; k < nfeedback; k++)
                 if (e->tex == feedback_tex[k] && (st_->type == TEXTYPE_2D || st_->type == TEXTYPE_2D_ARRAY)) {
-                    view = feedback_view[k];
-                    if (st_->type == TEXTYPE_2D_ARRAY) view = vk_dummy_view(TEXTYPE_2D_ARRAY);  // (2D snapshot as array: rare)
+                    view = vk_sample_view(e->tex, feedback_image[k], &e->view, e->has_view, st_->type);
                 }
         } else if (e->dead_format) {
             nvn_dead_slot_sampled(e, tic);
@@ -5470,7 +5656,40 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
     }
     if (h && st.spool && tsc < (uint32_t)st.spool->count) {
         NvnSamplerDesc *sd = &((NvnSamplerDesc *)st.spool->entries)[tsc];
-        smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);  // (integer texels: unfiltered)
+        // Scarlet sky provenance: the 480x270 sky pass samples a 32x128x32
+        // volume through t0, then it is composed at 1920x1080. A/B only the
+        // volume sampler's spatial interpolation; no shader or global filtering
+        // changes. "linear" means linear texel/volume filtering with the SAME
+        // mip selection class (nearest mip), "nearest" forces point sampling.
+        // Determine if horizontal bands come from 3D slice filtering before
+        // proposing any game-wide change. Disabled unless opted in.
+        static int sky_3d_filter = -1;
+        if (sky_3d_filter < 0) {
+            const char *e = ENV("SCARLET_SKY_3D_FILTER");
+            sky_3d_filter = e && strcmp(e, "linear") == 0 ? 1 :
+                            e && strcmp(e, "nearest") == 0 ? 2 : 0;
+        }
+        if (sky_3d_filter && stage == STAGE_FRAGMENT && i == 0 &&
+            st_->type == TEXTYPE_3D && !st_->shadow && !st_->stencil &&
+            g_cur_fs_hash == 0x9543b220d1d35f7bull) {
+            NvnSamplerDesc trial = *sd; // do not modify guest descriptor or cached state
+            trial.mag_filter = sky_3d_filter == 1 ? 1 : 0;
+            trial.min_filter = sky_3d_filter == 1 ? 3 : 2;
+            trial.backend = NULL; // vk_sampler creates/caches its own matching variant
+            trial.backend_gen = 0;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-sky] 3D t0 exact FS %016llx filter %s (guest min %u mag %u, wrap %u/%u/%u)\n",
+                    (unsigned long long)g_cur_fs_hash,
+                    sky_3d_filter == 1 ? "linear" : "nearest",
+                    sd->min_filter, sd->mag_filter,
+                    sd->wrap[0], sd->wrap[1], sd->wrap[2]);
+            }
+            smp = vk_sampler(&trial);
+        } else {
+            smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);
+        }
     }
     {   // (debug) LARECOMP_CS_DUMMY_TEX=<compute code hex>: that compute shader samples 1x1 black textures
         static uint64_t dummy_cs = ~0ull;
@@ -5499,7 +5718,27 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
         shadow_slot_check(stage, st_, i, h, tic, ent, ent && ent->tex ? (naliases ? alias_read(ent->tex) : ent->tex) : NULL, &view);
     if (!view) view = vk_dummy_view(st_->type);
     if (!smp) smp = vk_default_sampler(!st_->stencil && !st_->sint);
+    // The sky volume can be CPU-uploaded or produced by guest GPU commands.
+    // A block-depth deswizzle experiment only affects CPU-uploaded volumes.
+    // Log this provenance once so a missing raw dump is never misdiagnosed.
+    if (stage == STAGE_FRAGMENT && i == 0 && st_->type == TEXTYPE_3D &&
+        g_cur_fs_hash == 0x9543b220d1d35f7bull &&
+        (ENV("SCARLET_SKY_VOLUME_DUMP") || ENV("SCARLET_SKY_VOLUME_DEPTH"))) {
+        static bool reported_volume;
+        if (!reported_volume) {
+            reported_volume = true;
+            NvnTexture *sky = ent ? ent->tex : NULL;
+            TexBackend *vb = sky ? (TexBackend *)sky->backend : NULL;
+            LOG("[scarlet-sky] volume binding: tex %p guest %#llx 32x128x32 fmt %#x; gpu_owned %d uploaded %d block height %u block depth %u\n",
+                (void *)sky, (unsigned long long)(sky ? sky->addr : 0),
+                sky ? sky->format : 0, vb ? vb->gpu_owned : -1,
+                vb ? vb->uploaded : -1,
+                sky ? sky->layout.block_height_log2 : 0,
+                sky ? sky->layout.block_depth_log2 : 0);
+        }
+    }
     *out = (VkDescriptorImageInfo){smp, view, VK_IMAGE_LAYOUT_GENERAL};
+    scarlet_sky_audit_binding(stage, st_, i, h, ent, view);
 }
 
 // Writes the descriptor set of one stage. gx..gz: compute group counts (driver constants).
@@ -6456,6 +6695,40 @@ static void draw_(CmdRec *r, bool indexed) {
     for (int i = 0; i < st.rt.ncolor; i++) if (st.rt.color[i]) fkey.rt_kind[i] = (uint8_t)rt_kind(st.rt.color[i]->format);
     vkey.stencil_slots = stencil_slots(0, &vkey.sint_slots);
     fkey.stencil_slots = stencil_slots(1, &fkey.sint_slots);
+    // Completely opt-in experiment. Fingerprint only the known deferred-lighting
+    // program from the captures, never all hair/scene materials or any other FS.
+    // Mirror into vkey because the renderer's fast program/pipeline caches key
+    // the full vkey and selected fkey fields, not the whole fkey struct.
+    static int hair_mode = -1;
+    if (hair_mode < 0) {
+        const char *e = ENV("SCARLET_HAIR_MODE");
+        // Verified in Scarlet 4.0.0 (fingerprint + material 3): use albedo
+        // chroma restoration automatically in Scarlet's Windows port.
+        // SCARLET_HAIR_MODE=baseline remains available for regression.
+#ifdef SCARLET_AOT
+        hair_mode = !e ? 3 : strcmp(e, "mask") == 0 ? 1 :
+                    strcmp(e, "isotropic") == 0 ? 2 :
+                    strcmp(e, "albedo") == 0 ? 3 : 0;
+#else
+        hair_mode = e && strcmp(e, "mask") == 0 ? 1 :
+                    e && strcmp(e, "isotropic") == 0 ? 2 :
+                    e && strcmp(e, "albedo") == 0 ? 3 : 0;
+#endif
+    }
+    if (hair_mode && st.program->stages[1].code_addr) {
+        uint64_t fs = st.program->stages[1].code_addr;
+        uint64_t hash = hmix(1469598103934665603ull,
+                              (const void *)(uintptr_t)(fs + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull) {
+            vkey.scarlet_hair_mode = fkey.scarlet_hair_mode = (uint8_t)hair_mode;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-hair] exact FS %016llx mode %s (experimental, not a proven fix)\n",
+                    (unsigned long long)hash, hair_mode == 1 ? "mask" : hair_mode == 2 ? "isotropic" : "albedo");
+            }
+        }
+    }
     if (xfb_on && st.program->stages[0].control) {  // the program's transform feedback layout (its control section)
         const uint8_t *ctl = st.program->stages[0].control;
         for (int b = 0; b < 4; b++) {
@@ -6554,6 +6827,7 @@ static void draw_(CmdRec *r, bool indexed) {
     if (lighting) gtao_before_lighting(pr);  // (GTAO from the scene depth, before the lighting reads the G-buffer)
     if (water_is_surface(pr)) water_before();  // (the depth and the lit image before the water: water_apply)
     begin_pass();
+    scarlet_graphics_audit_draw(pr);  // after feedback resolution and pass setup, not skipped/replaced draws
     if (lighting) gtao_mark(st.rt.ncolor ? st.rt.color[0] : NULL);
     VkCommandBuffer cb = vk_cmd();
 
@@ -9137,10 +9411,43 @@ static void exec_list(uint64_t handle, int depth) {
     }
 }
 
+// F9 arrives on the SDL/UI thread. The game thread may queue work ahead of the Vulkan render
+// thread, so its transient one-frame flag cannot reliably identify the frame being translated.
+// Arm and run the capture here, keyed to the *render* frame (rq_frame, or total_frames without
+// a separate render thread). This captures all eligible passes of one complete frame.
+static void debug_capture_render_frame_begin(void) {
+    extern uint64_t renderer_exec_frame(void);
+    extern bool vk_f9_capture_take_request(void);
+    static uint64_t last_frame = UINT64_MAX;
+    uint64_t frame = renderer_exec_frame();
+    if (frame == last_frame) return;
+    last_frame = frame;
+
+    static long at = -1, count = -1;
+    static bool f9_pending;
+    if (at < 0) {
+        const char *e = ENV("LARECOMP_DEBUG_FRAME");
+        at = e ? atol(e) : 0;
+    }
+    if (count < 0) {
+        const char *e = ENV("LARECOMP_DEBUG_FRAMES");
+        count = e && atol(e) > 1 ? atol(e) : 1;
+    }
+    if (vk_f9_capture_take_request() && !f9_pending) {
+        at = (long)frame + 1;
+        f9_pending = true;
+        LOG("[debug] F9 armed Vulkan render frame %llu\n", (unsigned long long)at);
+    }
+    g_debug_frame = at > 0 && frame >= (uint64_t)at && frame - (uint64_t)at < (uint64_t)count;
+    if (f9_pending && frame >= (uint64_t)at) f9_pending = false;
+    if (g_debug_frame) LOG("[debug] capturing render frame %llu passes\n", (unsigned long long)frame);
+}
+
 // submit: end the submission after this list (else it goes on into the next list's)
 static void execute_one(uint64_t handle, bool submit) {
     extern void plat_sample_focus(void);  // (runtime/platform.h: LARECOMP_SAMPLE_EXEC samples this thread)
     plat_sample_focus();
+    debug_capture_render_frame_begin();
     exec_gen++;
     uint64_t t0 = SDL_GetTicksNS();
     exec_list(handle, 0);

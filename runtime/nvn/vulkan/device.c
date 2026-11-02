@@ -30,6 +30,11 @@ VK_DEVICE_COMMANDS_13(VK_DEFINE_COMMAND_13)
 #undef VK_DEFINE_COMMAND
 #undef VK_DEFINE_COMMAND_13
 static SDL_Window *window;
+// F9 is received on the UI thread, but only the Vulkan render thread should arm a frame capture.
+static _Atomic int vk_f9_capture_request;
+bool vk_f9_capture_take_request(void) {
+    return atomic_exchange_explicit(&vk_f9_capture_request, 0, memory_order_acq_rel) != 0;
+}
 
 // The system memory heap a whole-heap import (exec.c host_import) lands in and what it can hold: the largest heap with
 // a host-visible memory type that isn't device-local (all of them device-local: the largest host-visible one), the
@@ -1789,6 +1794,23 @@ void backend_present_now(NvnTexture *t, uint64_t frame) {
 static void present_hooks(void) {
     total_frames++;
     pace_frame();  // (pace.c: the game's 30 fps mode when frames don't fit 60)
+#ifdef SCARLET_AOT
+    // At 120/240 guest frames the window uses interval zero. Limit host
+    // presents to the chosen target so a high-refresh game does not run as
+    // fast as possible while awaiting physics/time-step verification.
+    extern int g_scarlet_target_fps;
+    if (g_scarlet_target_fps >= 120) {
+        static uint64_t last_frame_ns;
+        const uint64_t period_ns = 1000000000ull / (uint64_t)g_scarlet_target_fps;
+        uint64_t now = plat_now_ns();
+        if (last_frame_ns && now > last_frame_ns &&
+            now - last_frame_ns < period_ns) {
+            SDL_DelayNS(period_ns - (now - last_frame_ns));
+            now = plat_now_ns();
+        }
+        last_frame_ns = now;
+    }
+#endif
     extern void input_frame(uint64_t frame);
     input_frame(total_frames);
     static long slow_ms = -1;  // LARECOMP_SIM_SLOW_FRAME_MS=<ms>: sleep per presented frame (simulate a slow machine)
@@ -1806,14 +1828,8 @@ static void present_hooks(void) {
     save_editor_frame(total_frames);
     extern void vk_level_change_check(void);
     vk_level_change_check();
-    static long debug_at = -1;
-    if (debug_at < 0) { const char *e = ENV("LARECOMP_DEBUG_FRAME"); debug_at = e ? atol(e) : 0; }
-    extern volatile int g_debug_frame_request;
-    if (g_debug_frame_request) { g_debug_frame_request = 0; debug_at = (long)total_frames + 1; }
-    // LARECOMP_DEBUG_FRAMES=<n> (with LARECOMP_DEBUG_FRAME / F9): dump n consecutive frames (build/pass_<frame>_NNN.png)
-    static long debug_n = -1;
-    if (debug_n < 0) { const char *e = ENV("LARECOMP_DEBUG_FRAMES"); debug_n = e && atol(e) > 1 ? atol(e) : 1; }
-    g_debug_frame = debug_at && total_frames >= (uint64_t)debug_at && total_frames < (uint64_t)debug_at + (uint64_t)debug_n;
+    // The Vulkan renderer owns the debug-frame switch. Setting it here on the game thread
+    // could turn it off before the asynchronous render thread processes the queued frame.
 }
 
 void backend_present(NvnTexture *t) {
@@ -1917,7 +1933,11 @@ void ui_window_init(void) {
                                             ENV("LARECOMP_HOST_INPUT") || ENV("LARECOMP_BIND_TEST"));
         if (scripted) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
     }
+#ifdef SCARLET_AOT
+    window = SDL_CreateWindow("Scarlet", win_w, win_h, wflags);
+#else
     window = SDL_CreateWindow("ZA Recomp", win_w, win_h, wflags);
+#endif
     if (!window) FATAL("SDL_CreateWindow: %s\n", SDL_GetError());
     rt_window_icon(window);
     // the Fullscreen setting applies from the start screen on (not only once the game runs); test windows stay windows
@@ -2002,6 +2022,12 @@ int ui_run(void) {
             }
             extern bool input_user_blocked(const SDL_Event *e);
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing (as metal.m)
+            // Capture F9 before the menu can consume keyboard events (e.g. an overlay is open).
+            // It is a host-only diagnostic: do not forward/alter any game controls here.
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9 && !e.key.repeat) {
+                atomic_store_explicit(&vk_f9_capture_request, 1, memory_order_release);
+                LOG("[debug] F9 pressed: queued request for Vulkan render thread\n");
+            }
             input_cursor_event(&e);
             atomic_store(&ui_stage, "menu_handle_event");
             if (menu_handle_event(&e)) continue;
