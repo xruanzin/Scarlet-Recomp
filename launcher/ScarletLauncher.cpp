@@ -730,7 +730,8 @@ bool PrepareKeys(const std::wstring& selected) {
 }
 
 static bool RunProcess(const fs::path& exe, const std::wstring& args,
-                       const fs::path& log, DWORD* exitCode) {
+                       const fs::path& log, DWORD* exitCode,
+                       DWORD* win32StartError = nullptr) {
     std::wstring command = QuoteArg(exe.wstring()) + L" " + args;
     std::vector<wchar_t> mutableCmd(command.begin(),command.end());
     mutableCmd.push_back(L'\0');
@@ -751,9 +752,14 @@ static bool RunProcess(const fs::path& exe, const std::wstring& args,
     BOOL ok = CreateProcessW(exe.c_str(), mutableCmd.data(),nullptr,nullptr,
                              redirect, CREATE_NO_WINDOW,
                              nullptr,g_exe_dir.c_str(),&si,&pi);
+    const DWORD launchError=ok?ERROR_SUCCESS:GetLastError();
     if (logfile != INVALID_HANDLE_VALUE) CloseHandle(logfile);
     if (input != INVALID_HANDLE_VALUE) CloseHandle(input);
-    if (!ok) return false;
+    if (!ok) {
+        if (win32StartError) *win32StartError=launchError;
+        return false;
+    }
+    if (win32StartError) *win32StartError=ERROR_SUCCESS;
     CloseHandle(pi.hThread);
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code=1;
@@ -841,12 +847,55 @@ static bool PrepareLocalAot(std::wstring* error) {
     LauncherLog("Preparing Scarlet AOT locally from the player's updated ExeFS");
     PostMessageW(g_main,kAotPreparingMessage,1,0);
     const std::wstring args=L"--prepare-aot " + QuoteArg(InstalledRoot().wstring());
-    const bool ok=RunProcess(runtime,args,log,&status) && status==0;
+    DWORD startError=ERROR_SUCCESS;
+    const bool started=RunProcess(runtime,args,log,&status,&startError);
+    const bool ok=started && status==0;
     PostMessageW(g_main,kAotPreparingMessage,0,0);
     if (!ok) {
-        LauncherLog("AOT setup failed; inspect user/log/scarlet-aot.log");
-        *error=L"Não foi possível gerar o código AOT do jogo. Abra LOGS "
-               L"e consulte scarlet-aot.log. Os arquivos originais foram preservados.";
+        // Windows loader failures (e.g. missing DLL 0xC0000135) may happen
+        // before the CRT initializes stderr, leaving scarlet-aot.log empty.
+        // Preserve useful diagnostics even when no child output was captured.
+        std::ofstream diag(log,std::ios::binary | std::ios::app);
+        if (diag) {
+            diag << "\n[launcher-aot] start=" << (started?"ok":"failed")
+                 << " win32_error=" << startError
+                 << " child_exit=" << status << " (0x"
+                 << std::hex << status << std::dec << ")\n";
+            if (!started) {
+                diag << "[launcher-aot] CreateProcessW failed; check scarlet.exe and DLL dependencies.\n";
+            } else if (status == 0xC0000135u) {
+                diag << "[launcher-aot] Windows loader error: one or more required DLLs were not found.\n";
+            } else if (status == 0xC000007Bu) {
+                diag << "[launcher-aot] Windows loader error: invalid binary image or incompatible DLL.\n";
+            }
+            const fs::path installed=InstalledRoot();
+            for (const wchar_t* rel : {L"romfs.bin",L"exefs\\main",L"exefs\\sdk",L"exefs\\subsdk0"}) {
+                std::error_code fileError;
+                const fs::path file=installed / rel;
+                const bool exists=fs::is_regular_file(file,fileError);
+                diag << "[launcher-aot] input "
+                     << Utf8(rel) << ": "
+                     << (exists?"present":"MISSING");
+                if (exists) diag << " (" << fs::file_size(file,fileError) << " bytes)";
+                diag << "\n";
+            }
+            for (const wchar_t* rel : {L"lasgen\\lasgen.exe",L"zig\\zig.exe",
+                                       L"zig\\rt\\link.rsp",L"gamelib-src\\cpu.h",
+                                       L"gamelib-src\\gamelib_entry.c",
+                                       L"lasrecomp.dll.a"}) {
+                std::error_code fileError;
+                diag << "[launcher-aot] tool " << Utf8(rel) << ": "
+                     << (fs::is_regular_file(g_exe_dir / rel,fileError)?"present":"MISSING")
+                     << "\n";
+            }
+        }
+        LauncherLog("AOT setup failed; start="+std::to_string(started?1:0)
+                    +" win32="+std::to_string(startError)
+                    +" exit="+std::to_string(status)
+                    +"; see user/log/scarlet-aot.log");
+        *error=L"Falha ao preparar a AOT (código "+std::to_wstring(status)
+               +L"). Consulte scarlet-aot.log na aba LOGS. "
+                L"Os arquivos originais foram preservados.";
         return false;
     }
     LauncherLog("Scarlet local AOT ready");
