@@ -508,6 +508,18 @@ int main(int argc, char **argv) {
         !getenv("LARECOMP_HOST_INPUT") && !getenv("LARECOMP_REEXEC"))
         return scarlet_launch_original_ui();
 #endif
+#ifdef SCARLET_AOT
+    // Emit a trace before platform/SDL initialization. If the launcher captures
+    // an empty AOT log despite starting this process, the Windows loader likely
+    // failed before main() (DLL/image error).
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--prepare-aot")) {
+            setvbuf(stderr, NULL, _IONBF, 0);
+            fprintf(stderr, "[scarlet-aot] entered main; initializing runtime\n");
+            break;
+        }
+    }
+#endif
     plat_init();
     log_startup_info();
     if (getenv("LARECOMP_REEXEC")) {  // (reserve_guest_space started this process again)
