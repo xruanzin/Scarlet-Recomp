@@ -96,6 +96,10 @@ $pendingPE = New-Object 'System.Collections.Generic.Queue[string]'
 foreach ($file in @('scarlet.exe','ScarletLauncher.exe')) {
   $pendingPE.Enqueue((Join-Path $stage $file))
 }
+# Also inspect DLLs loaded dynamically (e.g. shaders, codecs).
+Get-ChildItem -LiteralPath $stage -Filter '*.dll' -File | ForEach-Object {
+  $pendingPE.Enqueue($_.FullName)
+}
 $localAot = Join-Path $bin 'lasgame.dll'
 if (Test-Path -LiteralPath $localAot -PathType Leaf) {
   $pendingPE.Enqueue($localAot) # inspect imports only; never include game-derived DLL
