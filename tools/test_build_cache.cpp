@@ -54,6 +54,15 @@ int main(int argc, char **argv) {
     assert(!build_cache_generation(cache, "main", &chunks));
     assert(build_cache_save_generation(cache, "main", 1, why, sizeof why));
     assert(build_cache_generation(cache, "main", &chunks) && chunks == 1);
+    // Scarlet 4.0.0 ships main, sdk and subsdk0. Each needs its own
+    // resumable generation receipt; malformed module names remain rejected.
+    write(work / "subsdk0/subsdk0_000.c", "int subsdk_example;");
+    write(work / "subsdk0/subsdk0_table.c", "int subsdk_table;");
+    assert(!build_cache_generation(cache, "subsdk0", &chunks));
+    assert(build_cache_save_generation(cache, "subsdk0", 1, why, sizeof why));
+    assert(build_cache_generation(cache, "subsdk0", &chunks) && chunks == 1);
+    assert(!build_cache_save_generation(cache, "unrecognized", 1, why, sizeof why));
+    assert(!build_cache_generation(cache, "unrecognized", &chunks));
     assert(build_cache_object(cache, "main_000", source.c_str(), hash) == 0);
     write(work / "main_000.o.tmp", "partial or completed object");
     assert(build_cache_object(cache, "main_000", source.c_str(), hash) == 0); // no success receipt yet
@@ -64,9 +73,12 @@ int main(int argc, char **argv) {
     cache = open();
     assert(cache);
     assert(build_cache_generation(cache, "main", &chunks));
+    assert(build_cache_generation(cache, "subsdk0", &chunks) && chunks == 1);
     assert(build_cache_object(cache, "main_000", source.c_str(), hash) == 1);
     assert(build_cache_prepare_generation(cache, "generator 2", inputs, 1, why, sizeof why));
     assert(!build_cache_generation(cache, "main", &chunks));
+    assert(!build_cache_generation(cache, "subsdk0", &chunks));
+    assert(!fs::exists(work / "subsdk0") && !fs::exists(work / "subsdk0.generation"));
     assert(fs::exists(work / "main_000.receipt"));
     write(work / "main/main_000.c", "int example;");
     write(work / "main/main_table.c", "int table;");
@@ -94,7 +106,8 @@ int main(int argc, char **argv) {
     assert(build_cache_publish(cache, "lasgame.dll", "new-runtime", why, sizeof why));
     assert(read(fs::u8path(game) / "lasgame.dll.id") == "new-runtime\n");
     assert(fs::exists(work / "main_000.o") && fs::exists(work / "main_000.receipt"));
-    for (const char *name : {"main", "gen_main.log", "main_000.log", "link.rsp", "zig-cache", "main.generation"})
+    for (const char *name : {"main", "subsdk0", "gen_main.log", "main_000.log", "link.rsp", "zig-cache",
+                             "main.generation", "subsdk0.generation"})
         assert(!fs::exists(work / name));
     assert(!fs::exists(fs::u8path(game) / ".zigcache") && !build_cache_resumable(game.c_str()));
     // Simulate a crash between installing the library and its metadata, then restart.
@@ -148,6 +161,6 @@ int main(int argc, char **argv) {
         assert(!open());
         fs::remove(work / "linked-inside");
     }
-    std::cout << "SHA-256, legacy upgrade, resume markers, success cleanup, locks, corruption, recovery and link boundaries "
+    std::cout << "SHA-256, Scarlet subsdk0 generation, legacy upgrade, resume markers, success cleanup, locks, corruption, recovery and link boundaries "
                  "passed\n";
 }
