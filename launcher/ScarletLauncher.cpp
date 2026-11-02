@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <cstdio>
 #include <fstream>
 #include <shlobj.h>
 #include <chrono>
