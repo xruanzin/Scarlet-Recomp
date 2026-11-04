@@ -115,3 +115,42 @@ A Windows build and in-game playtest are still REQUIRED.
 
 Original mod credit: Fl4sh, https://github.com/Fl4sh9174.
 No mod payload was copied into this repository.
+
+## Intro-bedroom animation/physics A/B (unconfirmed)
+
+At native 60 fps, the protagonist may briefly move above the floor in the
+opening bedroom sequence, then return to normal. Other motion is smoother.
+This is **not yet fixed** and does not establish whether root motion, physics,
+or animation interpolation is at fault.
+
+An independent native-port report for *Violet* found that an ASM 60-fps patch
+could still leave jump physics at 30-fps parameters:
+https://github.com/seedds/nxnative/issues/436
+It points to the separately documented frame-rate mode at main+0x05BEFCE4,
+which is OUTSIDE Scarlet's currently loaded main NSO image. Never blindly
+dereference, allocate or write this address; it may be unmapped.
+
+Experimental Win32 host-only probe (disabled by default):
+
+- SCARLET_DFPS_INTRO_MODE=probe: check VirtualQuery, then read the mode if
+  committed/readable. Log a sample every 60 presented frames and transitions.
+  No modifications.
+- SCARLET_DFPS_INTRO_MODE=force60: A/B experiment only. If committed and
+  writable, and its current 32-bit value is exactly 2, write 1 (60-mode).
+  It refuses to change any other value, any inaccessible or read-only
+  mapping, and leaves original files unchanged. Reasserted on presenting
+  frames, and might cause OTHER gameplay timing problems. Test only in an
+  isolated copy with separate saves, and never enable for release.
+- No variable: exact prior behavior, no probing or writes.
+
+The host code lives in runtime/scarlet_dfps_intro_mode.c and is called from
+runtime/nvn/pace.c. It changes neither tools/gen.py nor the generated AOT
+code, so it requires **only a runtime rebuild**, not a new lasgame.dll.
+Before trying force60, first run probe and look for
+'[scarlet-intro-mode] present=... value=2'. If the site is unmapped, there is
+no safe override to test; do not force memory mapping.
+
+A confirmed improvement in the opening scene, with no regression in jumps,
+battles, or cutscenes, is needed before implementing any automatic fix. The
+runtime must eventually identify the actual scene and root cause rather than
+apply the experimental override globally.
