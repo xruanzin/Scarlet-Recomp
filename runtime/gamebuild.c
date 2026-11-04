@@ -411,6 +411,15 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
 #else
     const int nso_count = 2;
 #endif
+#ifdef SCARLET_AOT
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps && !file_exists(dfps)) {
+        snprintf(why, why_size, "SCARLET_DFPS_PCHTXT does not point to an existing .pchtxt file");
+        return false;
+    }
+#else
+    const char *dfps = NULL;
+#endif
     const char *headers[] = {"cpu.h", "simd.h", "simd_fp.h", "gamelib.h"};
     for (int i = 0; i < 4; ++i) snprintf(input_paths[i+nso_count], sizeof input_paths[i+nso_count],
                                            "%s" SEP "%s", t.inc, headers[i]);
@@ -422,6 +431,15 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     snprintf(spec, sizeof spec, "LASBUILD3\n%s\n%s\n%s\nzig=%d pointer=%d%s%s\nmodules=%d\n", GAMELIB_BASE_ID,
              GAMELIB_CFLAGS, GAMELIB_SHARED, t.zig, (int)sizeof(void *),  // (+ the Linux zig target: objects from
              t.zig && ZIG_TARGET[0] ? " target=" : "", t.zig ? ZIG_TARGET : "", nso_count);
+#ifdef SCARLET_AOT
+    // Do not reuse an unpatched build's generated chunks, object receipts or
+    // library identity when opt-in Dynamic FPS ASM is enabled.
+    {
+        size_t used = strlen(spec);
+        snprintf(spec + used, sizeof spec - used, "scarlet_dfps=%s\n",
+                 dfps && *dfps ? "user-asm-v1" : "off");
+    }
+#endif
     if (o->progress) o->progress(0, "Checking completed build files...");
     bool resuming = build_cache_resumable(game_dir);  // (a cancelled or interrupted build; read before open marks this one)
     BuildCache *cache = build_cache_open(game_dir, spec, inputs, 5, why, why_size);
@@ -434,12 +452,15 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         snprintf(rp, sizeof rp, "%s" SEP "gamelib_entry.receipt", work);
         update = stat(rp, &st) == 0;
     }
-    const char *gen_inputs[6] = {0};
+    const char *gen_inputs[7] = {0};
     int ngen = 0;
     for (int i = 0; i < nso_count; ++i) gen_inputs[ngen++] = input_paths[i];
     gen_inputs[ngen++] = t.gen;
     gen_inputs[ngen++] = t.hle;
     if (t.gen_script[0]) gen_inputs[ngen++] = t.gen_script;
+#ifdef SCARLET_AOT
+    if (dfps && *dfps) gen_inputs[ngen++] = dfps;
+#endif
     if (!build_cache_prepare_generation(cache, GAMELIB_ID, gen_inputs, ngen, why, why_size)) {
         build_cache_failed(cache);
         build_cache_close(cache);
@@ -486,6 +507,10 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         if (i == 1) { add(&a, "--hle"); add(&a, t.hle); }
 #ifdef SCARLET_AOT
         add(&a, "--game"); add(&a, "scarlet");
+        if (i == 0 && dfps && *dfps) {
+            add(&a, "--scarlet-dfps-pchtxt");
+            add(&a, dfps);
+        }
 #endif
         g->p = spawn(a.v, g->log);
         args_free(&a);
