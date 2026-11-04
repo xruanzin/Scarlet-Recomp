@@ -5,6 +5,12 @@
 #include "rt.h"
 #include "gamelib.h"
 
+#ifdef SCARLET_AOT
+int scarlet_dfps_apply_guest(const char *path, const uint8_t build_id[32], uint64_t base,
+                            uint64_t image_size, const uint32_t seg[3][3], uint32_t bss,
+                            char *why, size_t why_len);
+#endif
+
 Module g_modules[4];
 int g_nmodules;
 
@@ -78,6 +84,18 @@ static void load_nso(Module *m, const char *path, uint64_t base) {
             memcpy(dst, raw + seg[i][0], seg[i][2]);
         }
     }
+#ifdef SCARLET_AOT
+    if (base == MAIN_BASE) {
+        const char *patch = getenv("SCARLET_DFPS_PCHTXT");
+        if (patch && *patch) {
+            char why[256] = "";
+            if (scarlet_dfps_apply_guest(patch, raw + 0x40, base, size,
+                                         seg, bss, why, sizeof why) != 0)
+                FATAL("[scarlet-dfps] %s\n", why);
+            LOG("[scarlet-dfps] applied 153 verified ASM entries to private guest memory\n");
+        }
+    }
+#endif
     free(raw);
     m->base = base;
     m->size = size;
