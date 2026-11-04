@@ -28,7 +28,7 @@ static void set_mode(const char *value) {
 }
 static int check(const char *name, const uint8_t *actual, const uint8_t expected[4]) {
     if (memcmp(actual, expected, 4)) {
-        fprintf(stderr, "FAIL: %s: got %02x %02x %02x %02x\\n",
+        fprintf(stderr, "FAIL: %s: got %02x %02x %02x %02x\n",
                 name, actual[0], actual[1], actual[2], actual[3]);
         return 0;
     }
@@ -36,7 +36,7 @@ static int check(const char *name, const uint8_t *actual, const uint8_t expected
 }
 int main(int argc, char **argv) {
     if (argc != 2) {
-        fprintf(stderr, "usage: test_dfps_y_gain original-patch.pchtxt\\n");
+        fprintf(stderr, "usage: test_dfps_y_gain original-patch.pchtxt\n");
         return 2;
     }
     const uint8_t build[32] = {
@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
     const uint8_t branch[4] = {0x28, 0x4b, 0x2a, 0x14};
     uint8_t *image = calloc(1, IMAGE_SIZE);
     char why[256] = "";
-    if (!image) { fprintf(stderr, "allocation failed\\n"); return 2; }
+    if (!image) { fprintf(stderr, "allocation failed\n"); return 2; }
     for (int test = 0; test < 4; test++) {
         memset(image, 0, IMAGE_SIZE);
         const char *mode = test == 0 ? "0" : test == 1 ? "1" : test == 2 ? "invalid" : "1";
@@ -69,11 +69,11 @@ int main(int argc, char **argv) {
                              test == 0 ? original_gain : unity_gain) ||
                 !check("Y limit", image + LIMIT_OFF, limit) ||
                 !check("original DFPS branch", image + BRANCH_OFF, branch)) {
-                fprintf(stderr, "FAIL: case %d: %s\\n", test, why);
+                fprintf(stderr, "FAIL: case %d: %s\n", test, why);
                 free(image); return 1;
             }
         } else if (!ret || image[GAIN_OFF] || image[BRANCH_OFF]) {
-            fprintf(stderr, "FAIL: invalid mode/build should fail closed (%s)\\n", why);
+            fprintf(stderr, "FAIL: invalid mode/build should fail closed (%s)\n", why);
             free(image); return 1;
         }
     }
