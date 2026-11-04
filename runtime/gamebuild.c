@@ -417,8 +417,6 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         snprintf(why, why_size, "SCARLET_DFPS_PCHTXT does not point to an existing .pchtxt file");
         return false;
     }
-#else
-    const char *dfps = NULL;
 #endif
     const char *headers[] = {"cpu.h", "simd.h", "simd_fp.h", "gamelib.h"};
     for (int i = 0; i < 4; ++i) snprintf(input_paths[i+nso_count], sizeof input_paths[i+nso_count],
