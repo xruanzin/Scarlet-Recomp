@@ -112,7 +112,49 @@ int scarlet_dfps_apply_guest(const char *path, const uint8_t build_id[32], uint6
         snprintf(why, why_len, "unsupported/modified Dynamic FPS ASM patch or NSO offset (%zu entries)", n);
         return -1;
     }
+    /*
+     * Opt-in A/B experiment for the intro's positive-Y amplification:
+     * the reviewed 153-entry Fl4sh ASM stores float32 1.95 at MAIN+0x0438f010.
+     * Its AOT-translated code reads this value from guest memory at runtime.
+     * A value of 1.0 disables ONLY this gain while keeping all other verified
+     * instructions unchanged. Not a gameplay-validated permanent fix.
+     *
+     * Never accept a modified .pchtxt or a different NSO: verify the original
+     * fingerprint first and require the original constant at its exact site.
+     */
+    const char *neutral_y_env = getenv("SCARLET_DFPS_NEUTRAL_Y");
+    const int neutral_y = neutral_y_env && !strcmp(neutral_y_env, "1");
+    if (neutral_y_env && *neutral_y_env && !neutral_y && strcmp(neutral_y_env, "0")) {
+        snprintf(why, why_len, "SCARLET_DFPS_NEUTRAL_Y must be 0 or 1");
+        return -1;
+    }
+    if (neutral_y) {
+        static const uint8_t original_gain[4] = {0x9a, 0x99, 0xf9, 0x3f};
+        int found_gain = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (entries[i].off != UINT32_C(0x0438f010)) continue;
+            if (entries[i].size != sizeof original_gain ||
+                memcmp(entries[i].data, original_gain, sizeof original_gain)) {
+                snprintf(why, why_len, "unexpected Scarlet DFPS Y gain bytes");
+                return -1;
+            }
+            found_gain = 1;
+            break;
+        }
+        if (!found_gain || (uint64_t)UINT32_C(0x0438f010) + 4 > image_size) {
+            snprintf(why, why_len, "Scarlet DFPS Y gain site missing");
+            return -1;
+        }
+    }
     for (size_t i = 0; i < n; ++i)
         memcpy((void *)(uintptr_t)(base + entries[i].off), entries[i].data, entries[i].size);
+    if (neutral_y) {
+        static const uint8_t unity_gain[4] = {0x00, 0x00, 0x80, 0x3f};
+        memcpy((void *)(uintptr_t)(base + UINT32_C(0x0438f010)),
+               unity_gain, sizeof unity_gain);
+        fprintf(stderr,
+                "[scarlet-dfps] intro A/B: MAIN+0x0438f010 Y gain 1.95 -> 1.0 "
+                "(experimental, not scene gated)\n");
+    }
     return 0;
 }
