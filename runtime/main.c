@@ -353,6 +353,17 @@ static void scarlet_fps60_setup(void) {
         LOG("[scarlet-fps] unsupported FPS setting %d; falling back to 30\n",target);
         target = 30;
     }
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps) {
+        if (target != 60)
+            FATAL("Experimental Dynamic FPS ASM requires SCARLET_TARGET_FPS=60 (not %d)\n", target);
+        // The user's reviewed ASM patch owns timing. Do NOT also force the
+        // unrelated static 0x03c2fbb0 period constant in this mode.
+        g_scarlet_target_fps = 60;
+        g_scarlet_native_fps60 = true;
+        LOG("[scarlet-fps] experimental Scarlet Dynamic FPS ASM active; static frame-period patch disabled\n");
+        return;
+    }
     if (target == 30) {
         LOG("[scarlet-fps] native target 30 FPS (baseline)\n");
         return;
