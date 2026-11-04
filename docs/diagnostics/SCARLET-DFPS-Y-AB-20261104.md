@@ -1,3 +1,23 @@
+## Update after visual test — 2026-11-04
+
+**Result: rejected as a fix for the bedroom stand-up bug.** The player
+reported that setting the Y gain to 1.0 did not eliminate the problem.
+More precise reproduction: after sitting at the bedroom desk, the player
+stands **automatically** as part of the scripted introduction, and
+the upward displacement occurs **during that stand-up transition**.
+The original 30 FPS build does not exhibit the error.
+
+Do not enable `SCARLET_DFPS_NEUTRAL_Y=1` for normal play.
+The prior test does not establish that this multiplier belongs to the
+player actor or that modifying it is safe. Keep the original patch.
+
+Next engineering step: inspect the generated AOT functions around
+`f_7000cce39c`, `f_700176101c` and their callers, aligning the
+scripted transition against the known-good 30 FPS behavior.
+A read-only source audit is implemented in
+`tools/scarlet/intro_standup_aot_audit.py`, without requiring Codex.
+This is diagnostic work, **not** a claim of a completed fix.
+
 # Scarlet 4.0.0 Dynamic FPS: controlled positive-Y gain experiment
 
 Status: **implemented, not yet gameplay-validated** (2026-11-04).
