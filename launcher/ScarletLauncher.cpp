@@ -981,7 +981,8 @@ static void StartNativeGame() {
         MessageBoxW(g_main,message.c_str(),kTitle,MB_OK|MB_ICONERROR);
         return;
     }
-    SetNativeFpsEnvironment();
+    // Do not change the FPS environment here: it was locked by LaunchGame
+    // before AOT preparation, so this process loads the matching DLL variant.
     std::wstring cmd=QuoteArg(runtime.wstring()) + L" --play " + QuoteArg(InstalledRoot().wstring());
     std::vector<wchar_t> args(cmd.begin(),cmd.end());args.push_back(L'\0');
     const fs::path logdir=g_exe_dir / L"user" / L"log";
@@ -1034,6 +1035,10 @@ static void StartNativeGame() {
 void LaunchGame() {
     if (g_importing.load()) return;
     SaveSettings();
+    // Freeze the selected FPS before the background AOT builder starts. The
+    // 60-FPS Dynamic ASM changes the generated library ID and must be active
+    // in BOTH --prepare-aot and --play (not just after compilation).
+    SetNativeFpsEnvironment();
     const fs::path folder=GetText(g_game_edit);
     auto packages=PackageFiles(folder);
     if (packages.empty()) {
