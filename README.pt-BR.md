@@ -34,7 +34,7 @@ A arquitetura parte de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-AReco
 
 **Problemas conhecidos:** olhos e sobrancelhas podem desaparecer em algumas cenas; a foto da ficha de matrícula pode ficar preta; outros defeitos gráficos e de estabilidade podem ocorrer. A flutuação na animação da cadeira e as piscadas em tela cheia deixaram de ocorrer em builds locais específicas, mas ainda precisam ser verificadas no pacote v1.0.0.
 
-**60 FPS dinâmicos nativos (experimental):** com o patch ASM original de Fl4sh validado e instalado localmente, selecionar **60 FPS** ativa automaticamente a variante AOT dinâmica, sem um modo extra no launcher. [Importação e limites do teste](docs/SCARLET-NATIVE-DYNAMIC-60FPS.md). O mod original não está incluído no repositório nem no ZIP público.
+**Temporização nativa adaptativa a 60 FPS (experimental):** selecionar **60 FPS** já utiliza o relógio adaptativo integrado ao runtime. Não precisa de mod, `.pchtxt`, nova opção no launcher nem refazer a DLL AOT por esse motivo. [Implementação e testes pendentes](docs/SCARLET-NATIVE-DYNAMIC-60FPS.md). A tremedeira do personagem ainda precisa de validação no jogo.
 
 ## Requisitos e instalação
 
