@@ -470,6 +470,7 @@ static NvnTexture *texture_from_builder(uint64_t b) {
 
 NVN(nvnTextureInitialize) {
     NvnTexture *t = texture_from_builder(A(1));
+    nvn_texture_publish(t);
     if (t->flags & 2)
         LOG("[nvn] video texture %p: %ux%u fmt %#x flags %#x target %u addr %llx stride %llu\n", t, t->width, t->height,
             t->format, t->flags, t->target, t->addr, t->stride);
@@ -483,6 +484,7 @@ static void pool_entries_forget(NvnTexture *t);
 // it see the slots empty, as without the render thread. (The NvnTexture stays allocated until then, so no other
 // texture can take its address while a slot still names it.)
 void nvn_texture_destroy(NvnTexture *t) {
+    nvn_texture_retire(t);
     pool_entries_forget(t);
     backend_texture_destroyed(t);
     free(t);
@@ -806,6 +808,11 @@ NVN(nvnWindowInitialize) {
     if (w->num > 8) w->num = 8;
     memcpy(w->textures, (void *)(uintptr_t)G(uint64_t, A(1), 0x18), w->num * 8);
     w->interval = (int)G(uint32_t, A(1), 0x20);
+#ifdef SCARLET_AOT
+    extern int g_scarlet_target_fps;
+    if (g_scarlet_target_fps == 60) w->interval = 1;
+    else if (g_scarlet_target_fps >= 120) w->interval = 0;
+#endif
     w->active = G(uint32_t, A(1), 0x24) ? (int)G(uint32_t, A(1), 0x24) : w->num;
     SET_HOST(A(0), w);
     LOG("[nvn] window with %d textures\n", w->num);
@@ -824,6 +831,11 @@ NVN(nvnWindowSetPresentInterval) {  // (the game's 60 / 30 fps mode: 1 / 2; LARE
     if (log < 0) log = getenv("LARECOMP_LOG_INTERVAL") != NULL;
     if (log && WIN->interval != (int)A(1)) LOG("[nvn] present interval %d -> %d\n", WIN->interval, (int)A(1));
     WIN->interval = (int)A(1);
+#ifdef SCARLET_AOT
+    extern int g_scarlet_target_fps;
+    if (g_scarlet_target_fps == 60) WIN->interval = 1;
+    else if (g_scarlet_target_fps >= 120) WIN->interval = 0;
+#endif
 }
 NVN(nvnWindowSetCrop) { int *cr = WIN->crop; cr[0] = (int)A(1); cr[1] = (int)A(2); cr[2] = (int)A(3); cr[3] = (int)A(4); }
 NVN(nvnWindowGetCrop) { memcpy(AP(1), WIN->crop, 16); }

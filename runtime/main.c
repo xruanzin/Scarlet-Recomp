@@ -14,6 +14,32 @@
 #include "platform.h"
 #include "gamebuild.h"  // (gamelib_old_cpu)
 #include <stdio.h>
+#if defined(SCARLET_AOT) && defined(_WIN32)
+#include <windows.h>
+#include <wchar.h>
+// Exact Scarlet PC native Win32/GDI+ launcher lives next to scarlet.exe.
+// Spawn it on normal double-click BEFORE initializing any game/Vulkan state.
+static int scarlet_launch_original_ui(void) {
+    wchar_t program[4096] = {};
+    DWORD n = GetModuleFileNameW(NULL, program, (DWORD)(sizeof program / sizeof program[0]));
+    if (!n || n >= (DWORD)(sizeof program / sizeof program[0] - 32)) return 4;
+    wchar_t *sep = wcsrchr(program, L'\\');
+    if (!sep) return 4;
+    wcscpy(sep + 1, L"ScarletLauncher.exe");
+    STARTUPINFOW si = {0};
+    PROCESS_INFORMATION pi = {0};
+    si.cb = sizeof si;
+    if (!CreateProcessW(program, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        MessageBoxW(NULL,
+            L"ScarletLauncher.exe não encontrado. Compile o launcher nativo.",
+            L"Scarlet", MB_OK | MB_ICONERROR);
+        return 4;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 0;
+}
+#endif
 #if defined(__x86_64__) || defined(__i386__)
 #include <cpuid.h>
 #endif
@@ -63,7 +89,11 @@ static void log_system(void) {
              __builtin_cpu_supports("avx2") ? "yes" : "no", __builtin_cpu_supports("fma") ? "yes" : "no",
              __builtin_cpu_supports("bmi2") ? "yes" : "no", gamelib_old_cpu() ? "v2" : "v3");
 #endif
+#ifdef SCARLET_AOT
+    LOG("[system] Scarlet-Recomp v1.0.0 (runtime %s) | %s | CPU: %s (%d threads%s) | RAM %d GB\n", rt_version(), os, cpu,
+#else
     LOG("[system] ZA Recomp %s | %s | CPU: %s (%d threads%s) | RAM %d GB\n", rt_version(), os, cpu,
+#endif
         SDL_GetNumLogicalCPUCores(), feat, (SDL_GetSystemRAM() + 512) / 1024);
 #ifdef _WIN32
     plat_run_begin();
@@ -88,8 +118,125 @@ static void module_init(Cpu *c, Module *m) {
     else run_array(c, m->init_array, m->init_array_sz);
 }
 
-static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
-static void rtld_init_main(Cpu *c) { module_init(c, &g_modules[0]); }
+// Scarlet 4.0.0 calls the main allocator from SDK DT_INIT before TPIDR_EL0
+// has been initialized. The known-safe startup compatibility path is now the
+// default in SCARLET_AOT builds, including --play without the Win32 launcher.
+// Both legacy environment flags remain optional explicit opt-outs (=0) for
+// debugging; other games / upstream builds retain their former opt-in behavior.
+static bool scarlet_native_bootstrap_enabled(const char *flag) {
+    if (g_program_id != 0x0100a3d008c5c000ull) return false;
+    const char *value = getenv(flag);
+#ifdef SCARLET_AOT
+    return !value || (value[0] && strcmp(value, "0") != 0);
+#else
+    return value && value[0] && strcmp(value, "0") != 0;
+#endif
+}
+static void scarlet_early_tls_probe(Cpu *c) {
+    if (!scarlet_native_bootstrap_enabled("SCARLET_EARLY_TLS_PROBE")) return;
+    uint64_t known = c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0;
+    LOG("[scarlet/tls] before SDK init: TPIDR=%llx TPIDRRO=%llx TLR.ThreadPointer=%llx\n",
+        (unsigned long long)c->tpidr, (unsigned long long)c->tpidrro, (unsigned long long)known);
+    if (!c->tpidr) {
+        c->tpidr = known ? known : (uint64_t)(uintptr_t)hle_alloc(0x1000);
+        LOG("[scarlet/tls] early TPIDR=%llx (%s); TLR.ThreadPointer left unchanged\n",
+            (unsigned long long)c->tpidr, known ? "existing SDK pointer" : "temporary guest-mapped probe buffer");
+    }
+}
+// Main's malloc (f_7002b7d830) dispatches via TLS[0x30], then invokes
+// vtable[0x10] with (allocator, bytes, alignment) in x0/x1/x2.
+// This startup shim implements ONLY the early allocation slot and returns
+// guest-mapped buffers. It is NOT a general-purpose malloc/free/realloc heap;
+// it must be used only before the game's allocator becomes available.
+static void scarlet_bootstrap_allocate(Cpu *c) {
+    uint64_t size = c->x[1], alignment = c->x[2];
+    if (alignment < 8) alignment = 8;
+    if (alignment > 65536 || (alignment & (alignment - 1)) || size > (16ull << 20))
+        FATAL("[scarlet/bootstrap] unsupported early allocation size=%llu align=%llu\n",
+            (unsigned long long)size, (unsigned long long)alignment);
+    uintptr_t raw = (uintptr_t)hle_alloc(size + alignment - 1);
+    c->x[0] = (uint64_t)((raw + alignment - 1) & ~(uintptr_t)(alignment - 1));
+    static unsigned count;
+    if (count++ < 20)
+        LOG("[scarlet/bootstrap] alloc #%u size=%llu align=%llu result=%llx\n",
+            count, (unsigned long long)size, (unsigned long long)alignment,
+            (unsigned long long)c->x[0]);
+}
+static void scarlet_bootstrap_allocator_probe(Cpu *c) {
+    if (!scarlet_native_bootstrap_enabled("SCARLET_BOOTSTRAP_ALLOCATOR")) return;
+    if (!c->tpidr) {
+        LOG("[scarlet/bootstrap] no TPIDR: early TLS bootstrap unavailable (check SCARLET_EARLY_TLS_PROBE=0)\n");
+        return;
+    }
+    uint64_t *slot = (uint64_t *)(uintptr_t)(c->tpidr + 0x30);
+    if (*slot) {
+        LOG("[scarlet/bootstrap] TLS already has allocator at %llx; not replacing\n",
+            (unsigned long long)*slot);
+        return;
+    }
+    uint64_t *vtable = hle_alloc(0x40);
+    uint64_t *object = hle_alloc(0x40);
+    vtable[2] = hle_register("<scarlet_bootstrap_allocate>", scarlet_bootstrap_allocate);
+    object[0] = (uint64_t)(uintptr_t)vtable;
+    *slot = (uint64_t)(uintptr_t)object;
+    LOG("[scarlet/bootstrap] temporary TLS allocator: TPIDR=%llx object=%llx vtable=%llx callback=%llx\n",
+        (unsigned long long)c->tpidr, (unsigned long long)*slot,
+        (unsigned long long)object[0], (unsigned long long)vtable[2]);
+}
+// A separate opt-in A/B probe for the Scarlet v4.0.0 startup dependency:
+ // main!malloc consults a guarded global allocator pointer at 0x7004759430,
+ // loaded from 0x7004759418, before the SDK finishes its DT_INIT.
+ // Log those observed guest addresses and, only when explicitly requested,
+ // try running main's DT_INIT before the SDK's. This order is experimental:
+ // the main initializer may itself depend on SDK initialization.
+static bool scarlet_main_init_early;
+static bool scarlet_probe_enabled(const char *name) {
+#ifdef SCARLET_AOT
+    // Main-before-SDK initialization caused startup crashes in Scarlet 4.0.0.
+    // Keep that A/B experiment confined to diagnostic builds, even when the
+    // user's environment still has the old SCARLET_MAIN_INIT_FIRST=1.
+    if (!strcmp(name, "SCARLET_MAIN_INIT_FIRST")) return false;
+#endif
+    const char *v = getenv(name);
+    return g_program_id == 0x0100a3d008c5c000ull && v && *v && strcmp(v, "0");
+}
+static void scarlet_allocator_probe(const char *when) {
+    if (!scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) return;
+    const uint64_t *seed = (const uint64_t *)(uintptr_t)0x7004759418ull;
+    const uint64_t *instance = (const uint64_t *)(uintptr_t)0x7004759430ull;
+    const uint8_t *guard = (const uint8_t *)(uintptr_t)0x7004759438ull;
+    LOG("[scarlet/alloc] %s: backing=%llx singleton=%llx guard=%02x\n",
+        when, (unsigned long long)*seed, (unsigned long long)*instance, (unsigned)*guard);
+}
+static void rtld_init_sdk(Cpu *c) {
+#ifdef SCARLET_AOT
+    if (g_program_id == 0x0100a3d008c5c000ull)
+        LOG("[scarlet/bootstrap] native startup compatibility enabled by default; "
+            "SCARLET_EARLY_TLS_PROBE=0 / SCARLET_BOOTSTRAP_ALLOCATOR=0 opt out\n");
+#endif
+    scarlet_early_tls_probe(c);
+    scarlet_bootstrap_allocator_probe(c);
+    if (scarlet_probe_enabled("SCARLET_MAIN_INIT_FIRST")) {
+        LOG("[scarlet/init] EXPERIMENT: main DT_INIT before sdk DT_INIT (no double init)\n");
+        scarlet_allocator_probe("before main DT_INIT");
+        module_init(c, &g_modules[0]);
+        scarlet_main_init_early = true;
+        scarlet_allocator_probe("after main DT_INIT");
+    }
+    scarlet_allocator_probe("before sdk DT_INIT");
+    module_init(c, &g_modules[1]);
+    if (scarlet_native_bootstrap_enabled("SCARLET_EARLY_TLS_PROBE"))
+        LOG("[scarlet/tls] after SDK init: TPIDR=%llx TLR.ThreadPointer=%llx\n",
+            (unsigned long long)c->tpidr,
+            (unsigned long long)(c->tpidrro ? *(uint64_t *)(uintptr_t)(c->tpidrro + 0x1f0) : 0));
+}
+static void rtld_init_main(Cpu *c) {
+    // Keep the original order by default; with the explicit Scarlet A/B
+    // experiment, main DT_INIT already ran, so it must not run twice.
+    for (int i = g_nmodules - 1; i >= 2; i--) module_init(c, &g_modules[i]);
+    if (!scarlet_main_init_early) module_init(c, &g_modules[0]);
+    else LOG("[scarlet/init] skipping main DT_INIT: already ran in first callback\n");
+}
 static void rtld_fini(Cpu *c) { (void)c; LOG("nnMain returned\n"); }
 
 // Claim the guest address range before anything else can map there. The host allocator places
@@ -189,7 +336,63 @@ static void teardown(void) {
     LOG("[reboot] game torn down in %llums (%d reset hooks)\n", (unsigned long long)((plat_now_ns() - t0) / 1000000), n);
 }
 
+// Scarlet 4.0.0 frame-duration experiment. The 60Hz constant at
+// MAIN+0x03c2fbb0 was previously validated by the community patch. 120/240
+// are scaled candidates only, and require gameplay/simulation validation.
+// Do not touch the unrelated uncommitted guest memory at MAIN+0x05befce4.
+int g_scarlet_target_fps = 30;
+bool g_scarlet_native_fps60;  // compatibility with legacy diagnostics
+static void scarlet_fps60_setup(void) {
+    g_scarlet_target_fps = 30;
+    g_scarlet_native_fps60 = false;
+#ifdef SCARLET_AOT
+    const char *requested = getenv("SCARLET_TARGET_FPS");
+    int target = requested ? atoi(requested) :
+        (getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1") ? 60 : 30);
+    if (target != 30 && target != 60 && target != 120 && target != 240) {
+        LOG("[scarlet-fps] unsupported FPS setting %d; falling back to 30\n",target);
+        target = 30;
+    }
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps) {
+        if (target != 60)
+            FATAL("Experimental Dynamic FPS ASM requires SCARLET_TARGET_FPS=60 (not %d)\n", target);
+        // The user's reviewed ASM patch owns timing. Do NOT also force the
+        // unrelated static 0x03c2fbb0 period constant in this mode.
+        g_scarlet_target_fps = 60;
+        g_scarlet_native_fps60 = true;
+        LOG("[scarlet-fps] experimental Scarlet Dynamic FPS ASM active; static frame-period patch disabled\n");
+        return;
+    }
+    if (target == 30) {
+        LOG("[scarlet-fps] native target 30 FPS (baseline)\n");
+        return;
+    }
+    if (g_program_id != 0x0100a3d008c5c000ull || !g_nmodules ||
+        g_modules[0].base != MAIN_BASE ||
+        g_modules[0].size < 0x03c2fbb0ull + sizeof(uint32_t)) {
+        LOG("[scarlet-fps] unknown program/module; requested %d FPS not applied\n",target);
+        return;
+    }
+    uint32_t *ns = (uint32_t *)(uintptr_t)(MAIN_BASE + 0x03c2fbb0ull);
+    const uint32_t before = *ns;
+    if (before != 33333334u && before != 16666667u &&
+        before != 8333333u && before != 4166667u) {
+        LOG("[scarlet-fps] unexpected frame period %#x; keeping 30 FPS\n",before);
+        return;
+    }
+    const uint32_t period = target == 60 ? 16666667u :
+                            target == 120 ? 8333333u : 4166667u;
+    *ns = period;
+    g_scarlet_target_fps = target;
+    g_scarlet_native_fps60 = target >= 60;
+    LOG("[scarlet-fps] requested %d FPS, period %u ns, NVN interval %d; 120/240 experimental\n",
+        target,period,target <= 60 ? 1 : 0);
+#endif
+}
+
 static void boot(const char *root) {
+    scarlet_main_init_early = false;  // also reset on in-place reboots
     char exefs[1024], romfs[1024], npdm_path[1024];
     snprintf(exefs, sizeof exefs, "%s/exefs", root);
     snprintf(romfs, sizeof romfs, "%s/romfs", root);
@@ -233,6 +436,7 @@ static void boot(const char *root) {
     g_game_is_la = g_program_id == 0x01006BB00C6F0000ull;
     if (!g_game_is_la) LOG("not Link's Awakening: its game hooks are off\n");
     LOG("main thread: prio %d, stack 0x%x, program 0x%016llx\n", prio, stack_size, (unsigned long long)g_program_id);
+    scarlet_fps60_setup();
 
     // nn::init::Start(thread_handle, args_region, init_sdk, init_main); newer SDKs (19: Pokémon Legends Z-A) add a
     // third callback, run after nnMain returns (the modules' finalizers: nothing to do here)
@@ -265,11 +469,117 @@ static void log_startup_info(void) {
     char ram[32] = "RAM unknown";
     if (si.ram && tenths % 10) snprintf(ram, sizeof ram, "%llu.%llu GB RAM", tenths / 10, tenths % 10);
     else if (si.ram) snprintf(ram, sizeof ram, "%llu GB RAM", tenths / 10);
+#ifdef SCARLET_AOT
+    fprintf(stderr, "[info] Scarlet-Recomp v1.0.0 (runtime %s), %s, %s%s, %s%s%s\n", larecomp_version(), si.os[0] ? si.os : "unknown OS",
+#else
     fprintf(stderr, "[info] ZA Recomp %s, %s, %s%s, %s%s%s\n", larecomp_version(), si.os[0] ? si.os : "unknown OS",
+#endif
             si.cpu[0] ? si.cpu : "unknown CPU", cores, ram, si.package ? ", " : "", si.package ? si.package : "");
 }
 
+
+#ifdef SCARLET_AOT
+static void scarlet_prepare_progress(double fraction, const char *step) {
+    // The launcher reads this log to display real AOT progress. Avoid writing
+    // the same line every 50 ms for an hours-long first-run compilation.
+    static int previous_percent = -1;
+    static char previous_step[80] = "";
+    static uint64_t previous_log_ns = 0;
+    int percent = (int)(fraction * 100.0 + 0.5);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    const char *message = step ? step : "Preparing";
+    const uint64_t now = plat_now_ns();
+    if (percent == previous_percent && !strcmp(message, previous_step) &&
+        previous_log_ns && now - previous_log_ns < 30000000000ull)
+        return;
+    previous_percent = percent;
+    snprintf(previous_step, sizeof previous_step, "%s", message);
+    previous_log_ns = now;
+    fprintf(stderr, "[scarlet-aot] %3d%% %s\n", percent, message);
+}
+
+// Parallel builds save substantial time on modern CPUs, but generated
+// functions can be very memory-intensive. Budget both logical CPU threads
+// and currently available RAM. No development tools are required by players.
+// SCARLET_AOT_JOBS=1..8 can be used to override the automatic choice.
+static int scarlet_prepare_jobs(void) {
+    const int cores = SDL_GetNumLogicalCPUCores();
+    const int ram_mb = SDL_GetSystemRAM();
+    int jobs = ram_mb >= 14336 ? 4 : ram_mb >= 10240 ? 3 : ram_mb >= 6144 ? 2 : 1;
+    if (cores > 0) {
+        const int cpu_budget = cores / 2 > 0 ? cores / 2 : 1;
+        if (jobs > cpu_budget) jobs = cpu_budget;
+    }
+#ifdef _WIN32
+    MEMORYSTATUSEX memory = {0};
+    memory.dwLength = sizeof memory;
+    if (GlobalMemoryStatusEx(&memory)) {
+        const unsigned long long free_mb = memory.ullAvailPhys / (1024ull * 1024ull);
+        const int memory_budget = free_mb >= 8192 ? 4 : free_mb >= 6144 ? 3 :
+                                  free_mb >= 4096 ? 2 : 1;
+        if (jobs > memory_budget) jobs = memory_budget;
+    }
+#endif
+    const char *override = getenv("SCARLET_AOT_JOBS");
+    if (override && *override) {
+        char *end = NULL;
+        const long requested = strtol(override, &end, 10);
+        if (*end == 0 && requested >= 1 && requested <= 8) jobs = (int)requested;
+        else fprintf(stderr, "[scarlet-aot] ignoring invalid SCARLET_AOT_JOBS (use 1..8)\n");
+    }
+    fprintf(stderr, "[scarlet-aot] compile workers: %d (CPU threads=%d, RAM=%d MB)\n",
+            jobs, cores, ram_mb);
+    return jobs;
+}
+static int scarlet_prepare_aot(const char *game_dir) {
+    char why[1024] = {0};
+    if (gamelib_present(game_dir)) {
+        fprintf(stderr, "[scarlet-aot] compatible local game code already built\n");
+        return 0;
+    }
+    if (!gamebuild_available()) {
+        fprintf(stderr, "[scarlet-aot] bundled lasgen/zig/gamelib-src are missing; "
+                "install the full Scarlet-Recomp ZIP\n");
+        return 3;
+    }
+    // Scale the first-run compilation to the user's CPU and available memory.
+    GameBuildOpts opts = {.progress = scarlet_prepare_progress, .jobs = scarlet_prepare_jobs(),
+                          .cancelled = NULL};
+    fprintf(stderr, "[scarlet-aot] compiling local game code from %s\n", game_dir);
+    if (!gamebuild_run(game_dir, &opts, why, sizeof why)) {
+        fprintf(stderr, "[scarlet-aot] FAILED: %s\n", *why ? why : "unknown error");
+        return 4;
+    }
+    if (!gamelib_present(game_dir)) {
+        fprintf(stderr, "[scarlet-aot] build finished, but the generated library was not recognized\n");
+        return 5;
+    }
+    fprintf(stderr, "[scarlet-aot] ready: compiled locally; no game code shipped\n");
+    return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // The Win32 launcher has the original Scarlet PC GDI+ layout and
+    // is separate from the game. "--play" always skips this step.
+    if (argc == 1 && !getenv("LARECOMP_INPUT") &&
+        !getenv("LARECOMP_HOST_INPUT") && !getenv("LARECOMP_REEXEC"))
+        return scarlet_launch_original_ui();
+#endif
+#ifdef SCARLET_AOT
+    // Emit a trace before platform/SDL initialization. If the launcher captures
+    // an empty AOT log despite starting this process, the Windows loader likely
+    // failed before main() (DLL/image error).
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--prepare-aot")) {
+            setvbuf(stderr, NULL, _IONBF, 0);
+            fprintf(stderr, "[scarlet-aot] entered main; initializing runtime\n");
+            break;
+        }
+    }
+#endif
     plat_init();
     log_startup_info();
     if (getenv("LARECOMP_REEXEC")) {  // (reserve_guest_space started this process again)
@@ -291,13 +601,43 @@ int main(int argc, char **argv) {
     bool no_launcher = nl && *nl && strcmp(nl, "0");
     bool skip_launcher = no_launcher || getenv("LARECOMP_INPUT");  // tests boot straight in
     if (getenv("LARECOMP_FORCE_LAUNCHER")) skip_launcher = false;  // (test: the start screen, then the scripted input)
+#ifdef SCARLET_AOT
+    // The default Scarlet user workflow is ALWAYS the launcher when opened
+    // without arguments. Stale test environment variables must not silently
+    // boot a missing/extracted Z-A root or show a black screen. Explicit
+    // --play and scripted runs are still supported below.
+    if (argc == 1 && !getenv("LARECOMP_INPUT") && !getenv("LARECOMP_HOST_INPUT")) {
+        if (no_launcher || skip_launcher)
+            LOG("[scarlet] ignoring inherited LARECOMP_NO_LAUNCHER for normal start; use --play for direct testing\n");
+        no_launcher = false;
+        skip_launcher = false;
+    }
+#endif
     static char arg_root[1024];
+#ifdef SCARLET_AOT
+    bool prepare_aot = false;
+#endif
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--play")) skip_launcher = true;
+#ifdef SCARLET_AOT
+        else if (!strcmp(argv[i], "--prepare-aot")) { skip_launcher = true; prepare_aot = true; }
+#endif
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // The Scarlet executable is portable: put extracted NSP/XCI images, DLCs,
+    // saves and caches beside scarlet.exe (normally on D:), not on a possibly
+    // full C: / AppData folder. User/test-specified LARECOMP_DATA_ROOT wins.
+    if (!getenv("LARECOMP_DATA_ROOT")) {
+        const char *exe_home = SDL_GetBasePath();
+        if (exe_home && *exe_home) setenv("LARECOMP_DATA_ROOT", exe_home, 0);
+    }
+#endif
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+#ifdef SCARLET_AOT
+    if (prepare_aot) return scarlet_prepare_aot(root);
+#endif
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0,
         // b1f12fd919eae86a: 2.0.2): the start screen sets its files up from the player's packages (zaimport). Started
         // without a log redirect (a double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
@@ -339,8 +679,14 @@ int main(int argc, char **argv) {
             exit(3);
         }
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
+#ifdef SCARLET_AOT
+            LOG("[scarlet] entering native Scarlet launcher before game boot\n");
+#endif
             extern void launcher_run(const char *root);
             launcher_run(root);
+// Scarlet's original Win32 launcher is a separate process. It starts
+// scarlet.exe with --play and an explicit extracted root; there is no
+// in-game Scarlet launcher root to query here.
         }
         boot(root);
         int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested

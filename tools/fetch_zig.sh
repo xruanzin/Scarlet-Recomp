@@ -28,8 +28,29 @@ mkdir -p "$DL"
 [ -f "$DL/$NAME.$EXT" ] || curl -fL --proto '=https' -o "$DL/$NAME.$EXT" "https://ziglang.org/download/$VER/$NAME.$EXT"
 GOT=$( (shasum -a 256 2>/dev/null || sha256sum) < "$DL/$NAME.$EXT" | cut -d' ' -f1)
 [ "$GOT" = "$SHA" ] || { echo "$NAME.$EXT: sha256 $GOT, expected $SHA"; exit 1; }
-rm -rf "$DL/$NAME" build/zig
-if [ "$EXT" = zip ]; then unzip -q "$DL/$NAME.$EXT" -d "$DL"; else tar -xJf "$DL/$NAME.$EXT" -C "$DL"; fi
+# Keep the existing compiler intact until extraction has succeeded.
+rm -rf "$DL/$NAME"
+if [ "$EXT" = zip ]; then
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -q "$DL/$NAME.$EXT" -d "$DL"
+    elif command -v powershell.exe >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+        # MSYS2 UCRT64 minimal installs may not include unzip. Windows PowerShell
+        # can extract the ZIP using the same verified SHA256 archive. Export paths
+        # as environment variables to avoid quoting and argument conversion bugs.
+        echo "unzip unavailable: extracting verified Zig ZIP via Windows PowerShell"
+        SCARLET_ZIG_ARCHIVE="$(cygpath -w "$PWD/$DL/$NAME.$EXT")" \
+        SCARLET_ZIG_DEST="$(cygpath -w "$PWD/$DL")" \
+        powershell.exe -NoProfile -NonInteractive -Command \
+            '$ErrorActionPreference = "Stop"; Expand-Archive -LiteralPath $env:SCARLET_ZIG_ARCHIVE -DestinationPath $env:SCARLET_ZIG_DEST -Force'
+    else
+        echo "Zig extraction requires unzip or Windows PowerShell (powershell.exe + cygpath)." >&2
+        exit 1
+    fi
+else
+    tar -xJf "$DL/$NAME.$EXT" -C "$DL"
+fi
+[ -d "$DL/$NAME" ] || { echo "Zig extracted directory missing: $DL/$NAME" >&2; exit 1; }
+rm -rf build/zig
 mv "$DL/$NAME" build/zig
 
 # size: only what compiling C for this same OS needs (the game code is built for the machine it runs on): its libc

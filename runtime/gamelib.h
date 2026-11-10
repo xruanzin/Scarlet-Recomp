@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cpu.h"
@@ -27,7 +28,7 @@
 #ifndef GAMELIB_ID
 #define GAMELIB_ID "dev"
 #endif
-#define GAMELIB_ABI 1
+#define GAMELIB_ABI 2  // adds optional subsdk0 tables; old v1 DLLs are rejected safely
 #define GAMELIB_FULL_ID_SIZE 96
 
 bool gamelib_old_cpu(void);  // runtime/gamelib.c: no AVX2 / FMA / BMI2 - the game code is built for x86-64-v2
@@ -44,6 +45,15 @@ static inline bool gamelib_full_id(const char *game_dir, char *out, size_t size)
     if (!ok) return false;
     int n = snprintf(out, size, "%s%s-", GAMELIB_ID, gamelib_old_cpu() ? "-v2" : "");  // (an x86-64-v2 build: its own)
     for (int i = 0; i < 8 && n + 2 < (int)size; i++) n += snprintf(out + n, size - n, "%02X", hdr[0x40 + i]);
+#ifdef SCARLET_AOT
+    // A patched AOT library MUST NOT load against unpatched guest memory (or vice versa).
+    // An opt-in mode suffix isolates both library id and build-cache receipts.
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps) {
+        if (n + 9 >= (int)size) return false;
+        snprintf(out + n, size - n, "-dfpsasm");
+    }
+#endif
     return true;
 }
 
@@ -53,6 +63,10 @@ typedef struct {
     const uint64_t *main_addrs, *sdk_addrs;  // sorted guest addresses
     const GuestFn *main_fns, *sdk_fns;       // the functions at them
     const uint64_t *main_count, *sdk_count;
+    // Optional third NSO.  NULL for original LA/ZA game code builds.
+    const uint64_t *subsdk0_addrs;
+    const GuestFn *subsdk0_fns;
+    const uint64_t *subsdk0_count;
 } GameLibTables;
 
 // The library's one exported function (tools/gamelib_entry.c).

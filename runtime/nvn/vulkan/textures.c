@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "../rqueue.h"
+#include "../packed16.h"
 #include "vk.h"
 #include "record.h"
 #include "../astc.h"
@@ -91,9 +92,13 @@ static VkFmt fmt_of(uint32_t f) {
     case 0x36: return (VkFmt){VK_FORMAT_D32_SFLOAT_S8_UINT};
     case 0x37: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB, 0, 1};
     case 0x38: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB};
-    case 0x39: return (VkFmt){VK_FORMAT_R4G4B4A4_UNORM_PACK16};   // Metal ABGR4Unorm
+    // NVN RGBA4 uses R in bits 0-3 and A in bits 12-15, while Vulkan's
+    // R4G4B4A4_PACK16 has a different bit order. Expand to uncompressed RGBA8.
+    case 0x39: return (VkFmt){VK_FORMAT_R8G8B8A8_UNORM, 2};
     case 0x3A: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};     // Metal B5G6R5Unorm
-    case 0x3B: return (VkFmt){VK_FORMAT_R5G5B5A1_UNORM_PACK16};   // Metal A1BGR5Unorm
+    // NVN RGB5A1 has R in bits 0-4 and A at bit 15; Vulkan R5G5B5A1
+    // would read both the red and alpha channels from the opposite end.
+    case 0x3B: return (VkFmt){VK_FORMAT_R8G8B8A8_UNORM, 3};
     case 0x3C: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};
     case 0x3D: return (VkFmt){VK_FORMAT_A2B10G10R10_UNORM_PACK32};
     case 0x3E: return (VkFmt){VK_FORMAT_A2B10G10R10_UINT_PACK32};
@@ -571,14 +576,17 @@ static TexBackend *tex_backend(NvnTexture *t) {
 static void hd_forget(NvnTexture *t);  // (HD texture packs, below)
 void backend_texture_destroyed(NvnTexture *t) {
     TexBackend *b = t->backend;
+    // Bound state exists even before lazy backend creation (bind, finalize,
+    // later clear/draw). Always invalidate it before the host object is freed.
+    extern void vk_alias_texture_destroyed(NvnTexture *t);
+    extern void vk_exec_texture_destroyed(NvnTexture *t);
+    extern void vk_device_texture_destroyed(NvnTexture *t);
+    vk_alias_texture_destroyed(t);
+    vk_exec_texture_destroyed(t);
+    vk_device_texture_destroyed(t);
+    hd_forget(t);
+    b = t->backend;  // alias handover may have materialized the backend
     if (b) {
-        extern void vk_alias_texture_destroyed(NvnTexture *t);  // (exec.c copy aliases: a source's contents handed over)
-        vk_alias_texture_destroyed(t);
-        extern void vk_exec_texture_destroyed(NvnTexture *t);  // (exec.c: bound render targets and snapshots forget it)
-        vk_exec_texture_destroyed(t);
-        extern void vk_device_texture_destroyed(NvnTexture *t);  // (device.c: the last presented texture)
-        vk_device_texture_destroyed(t);
-        hd_forget(t);
         live_remove(b);
         destroy_image(b);
         free(b->pending_rgba);
@@ -1121,22 +1129,84 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
             }
             uint32_t row = l.wb * fi->bpb;
             uint64_t sz = (uint64_t)row * l.hb * l.d;
-            bool expand = mf.expand_rgb && fi->bpb == 3;
+            // 1 = RGB8 (3 bytes), 2 = RGBA4 and 3 = RGB5A1 (2 bytes).
+            // Packed16 must be unpacked before uploading to an RGBA8 Vulkan image.
+            bool expand = (mf.expand_rgb == 1 && fi->bpb == 3) ||
+                          (mf.expand_rgb >= 2 && fi->bpb == 2);
             uint32_t out_row = expand ? l.wb * 4 : row;
             VkSpan s = vk_transient((uint64_t)out_row * l.hb * l.d, 16);
             uint8_t *lin = expand ? malloc(sz) : s.ptr;
             const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + layer * layer_size + l.offset;
             Unpack u = {src, lin, l.wb, l.hb, l.d, fi->bpb, l.block_height_log2, l.block_depth_log2, row, t->stride, linear};
-            if (!expand && !(b->tp > 0 && layer == 0) && unpack_threads()) {  // (done before the submission: above)
+            // Pokemon Scarlet's exact 32x128x32 RGBA16F sky volume uses
+            // independent 2D GOB slices (block depth log2=0). The generic
+            // tegra_layout_init() assumes a 32-slice GOB stack (log2=5).
+            // On the user's Switch data, that scrambled Z-slices and caused
+            // visible horizontal bands in the 480x270 sky pass. F10 confirmed
+            // clean sky when the CPU upload was deswizzled with depth 0.
+            // Scope the compatibility fix to this exact texture only; keep
+            // SCARLET_SKY_VOLUME_DEPTH=5 for A/B regression/opt-out.
+            bool sky_vol = !linear && !expand && layer == 0 && lv == 0 &&
+                           t->target == 2 && t->format == 0x29 &&
+                           t->width == 32 && t->height == 128 && t->depth == 32;
+            static int sky_bd = -2, sky_dump = -1;
+            if (sky_bd == -2) {
+                const char *e = ENV("SCARLET_SKY_VOLUME_DEPTH");
+                // Correct depth 0 by default for the fingerprinted sky volume.
+                sky_bd = e && *e ? atoi(e) : 0;
+                if (sky_bd < 0 || sky_bd > 5) sky_bd = 0;
+            }
+            if (sky_dump < 0) sky_dump = ENV("SCARLET_SKY_VOLUME_DUMP") != NULL;
+            if (sky_vol) {
+                // This 1 MiB texture is uploaded rarely; unpack synchronously.
+                // With -SkyVolumeDump, the data is ready before it is saved.
+                u.bd = (uint32_t)sky_bd;
+                unpack_one(&u);
+                static int logged;
+                if (logged++ < 4) LOG("[scarlet-sky] sky volume 32x128x32 fmt 0x29; unpack block height %u depth %u (guest assumed depth %u), raw %llu bytes\n",
+                                      u.bh, u.bd, l.block_depth_log2, (unsigned long long)sz);
+                static bool dumped;
+                if (sky_dump && !dumped) {
+                    dumped = true;
+                    SDL_CreateDirectory("build");
+                    SDL_CreateDirectory("build/scarlet-focus");
+                    const char *name = "build/scarlet-focus/sky_volume_linear_rgba16f_32x128x32.bin";
+                    FILE *fp = fopen(name, "wb");
+                    size_t nbytes = (size_t)row * l.hb * l.d;
+                    if (fp) {
+                        size_t written = fwrite(lin, 1, nbytes, fp);
+                        fclose(fp);
+                        LOG("[scarlet-sky] %s: %zu / %zu bytes, block depth %u\n",
+                            name, written, nbytes, u.bd);
+                    } else LOG("[scarlet-sky] failed to write %s\n", name);
+                    // Keep the original Tegra block-linear bytes as well. This
+                    // allows testing all six GOB block-depth interpretations
+                    // offline, without starting the game or capturing F9 again.
+                    const char *raw_name = "build/scarlet-focus/sky_volume_tiled_rgba16f_32x128x32.bin";
+                    fp = fopen(raw_name, "wb");
+                    if (fp) {
+                        size_t raw_written = fwrite(src, 1, (size_t)sz, fp);
+                        fclose(fp);
+                        LOG("[scarlet-sky] %s: %zu / %llu bytes\n",
+                            raw_name, raw_written, (unsigned long long)sz);
+                    } else LOG("[scarlet-sky] failed to write %s\n", raw_name);
+                }
+            } else if (!expand && !(b->tp > 0 && layer == 0) && unpack_threads()) {  // (done before the submission: above)
                 if (up_n == up_cap) up_q = realloc(up_q, sizeof *up_q * (up_cap = up_cap ? up_cap * 2 : 256));
                 up_q[up_n++] = u;
                 up_bytes += sz;
             } else unpack_one(&u);
             if (b->tp > 0 && layer == 0) texpatch_apply(b->tp - 1, lv, lin, l.w, l.h, row);
-            if (expand) {  // RGB8 -> RGBA8
+            if (expand) {  // RGB8, RGBA4, RGB5A1 -> RGBA8 (including every mip/layer)
                 uint8_t *o = s.ptr;
-                uint64_t n = (uint64_t)l.wb * l.hb * l.d;
-                for (uint64_t i = 0; i < n; i++) { o[i * 4] = lin[i * 3]; o[i * 4 + 1] = lin[i * 3 + 1]; o[i * 4 + 2] = lin[i * 3 + 2]; o[i * 4 + 3] = 255; }
+                size_t n = (size_t)l.wb * l.hb * l.d;
+                if (mf.expand_rgb == 1) {
+                    for (size_t i = 0; i < n; i++) {
+                        o[i * 4] = lin[i * 3]; o[i * 4 + 1] = lin[i * 3 + 1];
+                        o[i * 4 + 2] = lin[i * 3 + 2]; o[i * 4 + 3] = 255;
+                    }
+                } else if (mf.expand_rgb == 2) nvn_unpack_rgba4(o, lin, n);
+                else nvn_unpack_rgb5a1(o, lin, n);
                 free(lin);
             }
             uint32_t w = l.w, hh = l.h, d = l.d;
@@ -1390,6 +1460,12 @@ VkImageView vk_render_view(NvnTexture *t, const NvnTextureView *v, bool has_view
 VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool render, int want_textype) {
     if (render) return vk_render_view(t, v, has_view, NULL);
     TexBackend *b = vk_tex(t, render);
+    return vk_sample_view(t, b, v, has_view, want_textype);
+}
+
+// Feedback copies share storage, not descriptor interpretation. In particular, two
+// slots may read depth and stencil from the same image in the same draw.
+VkImageView vk_sample_view(NvnTexture *t, TexBackend *b, const NvnTextureView *v, bool has_view, int want_textype) {
     if (!has_view) v = NULL;
     VkFormat fmt = b->format;
     if (v && (v->setmask & 4) && !(b->aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))) {
@@ -1688,7 +1764,13 @@ static VkSampler sampler_make(const NvnSamplerDesc *d) {
     }
     static float lodmin = -1;
     if (lodmin < 0) lodmin = ENV("LARECOMP_LOD_MIN") ? (float)atof(ENV("LARECOMP_LOD_MIN")) : 0;
-    if (lodmin > 0 && mf > 1) si.minLod = fmaxf(si.minLod, lodmin);
+    if (lodmin > 0 && mf > 1) {
+        si.minLod = fmaxf(si.minLod, lodmin);
+        // Keep the Vulkan sampler's LOD interval legal even when a material
+        // explicitly caps its maximum mip below the diagnostic minimum.
+        // This also makes LARECOMP_LOD_MIN usable to isolate corrupt base mips.
+        if (si.maxLod < si.minLod) si.maxLod = si.minLod;
+    }
     static int stest = -1;
     if (stest < 0) stest = ENV("LARECOMP_SAMPLER_TEST") != NULL;
     if (stest && mf > 1) { si.minLod = 0; si.maxLod = VK_LOD_CLAMP_NONE; si.anisotropyEnable = VK_TRUE; si.maxAnisotropy = 16; }

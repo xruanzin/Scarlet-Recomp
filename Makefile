@@ -44,7 +44,7 @@ GENFLAGS := $(GENOPT) -fno-strict-aliasing -Wno-return-type -Wno-unused-label -f
 # the app itself holds none of it
 # (strip: with no generated code the space between the two would be all that's left, and $(if) takes a lone space as
 # true. No comment after the value: make keeps the spaces before it)
-GEN_SRC  := $(strip $(wildcard $(GEN)/main/*.c) $(wildcard $(GEN)/sdk/*.c))
+GEN_SRC  := $(strip $(wildcard $(GEN)/main/*.c) $(wildcard $(GEN)/sdk/*.c) $(wildcard $(GEN)/subsdk0/*.c))
 GEN_OBJ  := $(patsubst %.c,$(B)/obj/%.o,$(patsubst $(GEN)/%,%,$(GEN_SRC))) $(B)/obj/tools/gamelib_entry.o
 RT_SRC   := $(wildcard runtime/*.c runtime/*.cpp) $(wildcard runtime/hle/*.c) $(wildcard runtime/services/*.c) \
             $(wildcard runtime/nvn/*.c) $(wildcard runtime/nvn/maxwell/*.c) runtime/platform/$(PLATFORM).c
@@ -91,7 +91,13 @@ GAMELIB  := $(B)/lasgame.so
 GAMELIB_LDFLAGS := -shared -fuse-ld=lld  # (the runtime functions it calls: the app's own, -rdynamic)
 GAMELIB_SHARED := -shared
 else
+# Only the opt-in Scarlet Windows AOT build uses the Scarlet executable name.
+# The original LAS / Z-A build keeps lasrecomp.exe.
+ifeq ($(SCARLET_AOT),1)
+EXE      := $(B)/scarlet.exe
+else
 EXE      := $(B)/lasrecomp.exe
+endif
 DEPINC   := $(if $(DEPS),-I$(DEPS)/include)
 OSFLAGS  := -D_FILE_OFFSET_BITS=64 -D_POSIX_THREAD_SAFE_FUNCTIONS -D_CRT_RAND_S -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
             $(if $(RELEASE),-DLARECOMP_ZIP_BUILD)  # (the log's [info] line: the release zip)
@@ -108,7 +114,7 @@ IMGUI_OBJ += $(B)/imgui/imgui_impl_vulkan.o
 UIFLAGS  := -x c++ $(OSFLAGS)  # the .mm UI sources are plain C++ apart from __APPLE__ blocks
 GAMELIB  := $(B)/lasgame.dll
 # the runtime functions it calls: exported by the .exe, linked through its import library
-LDFLAGS  += -Wl,--export-all-symbols -Wl,--out-implib,$(B)/lasrecomp.dll.a
+LDFLAGS  += -Wl,--export-all-symbols -Wl,--out-implib,$(B)/lasrecomp.dll.a -lbcrypt  # csrng uses Windows CSPRNG
 GAMELIB_LDFLAGS := -shared -fuse-ld=lld $(B)/lasrecomp.dll.a
 GAMELIB_SHARED := -shared  # (+ the import library: runtime/gamebuild.c)
 endif
@@ -116,7 +122,7 @@ endif
 # GAMELIB_ID: what the game code library is built from (the generator, the headers it is compiled against, the
 # flags). A library with another id is rebuilt by the start screen, never loaded.
 GAMELIB_SRCS := tools/game_addresses.py runtime/game_addresses/versions.h $(wildcard runtime/game_addresses/patches_v*.h) tools/gen.py tools/lifter.py tools/analyze.py tools/nso.py tools/passes.py tools/patches.py \
-                tools/simd_c.py tools/flagfuse.py tools/regpromote.py tools/za_patches.py tools/rando/patch_variants.json tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
+                tools/simd_c.py tools/flagfuse.py tools/regpromote.py tools/za_patches.py tools/scarlet/dfps_patch.py tools/rando/patch_variants.json tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
                 runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h
 GAMELIB_ID := $(shell (cat $(GAMELIB_SRCS); echo '$(GENFLAGS)') | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
 # The library's own id adds the game's main build ID (what `make gen` generated from: $(GEN)/main/main_build_id.txt),
@@ -131,6 +137,15 @@ GAMELIB_BASE_ID := $(shell (cat $(GAMELIB_BASE_SRCS); echo '$(GENFLAGS) $(GAMELI
                      (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
 
 RT_OBJ   := $(patsubst runtime/%.cpp,$(B)/rt/%.o,$(patsubst runtime/%.c,$(B)/rt/%.o,$(RT_SRC)))
+# Scarlet AOT is a distinct runtime flavour: activate its launcher, exact-hair
+# compatibility shader, and version gate only for `make SCARLET_AOT=1`.
+ifneq ($(SCARLET_AOT),)
+ifeq ($(SCARLET_AOT),1)
+OSFLAGS += -DSCARLET_AOT=1
+# UIFLAGS was :=-expanded earlier in the Windows platform branch.
+UIFLAGS += -DSCARLET_AOT=1
+endif
+endif
 RTFLAGS  := -O2 -g -fno-strict-aliasing -Wall -Wno-unused-function -Iruntime -Iruntime/nvn $(DEPINC) $(OSFLAGS)
 CXXFLAGS := -O2 -g -std=c++17 -I$(IMGUI) -I$(IMGUI)/backends -Iruntime -Iruntime/nvn $(DEPINC)
 
@@ -142,7 +157,7 @@ $(B)/obj/%.o: $(GEN)/%.c runtime/cpu.h runtime/simd.h runtime/simd_fp.h
 
 $(B)/obj/tools/gamelib_entry.o: tools/gamelib_entry.c $(GAMELIB_SRCS) $(wildcard $(GEN)/main/main_build_id.txt)
 	@mkdir -p $(dir $@)
-	$(CC) $(GENFLAGS) -DGAMELIB_ID='"$(GAMELIB_FULL_ID)"' -c $< -o $@
+	$(CC) $(GENFLAGS) $(if $(SCARLET_AOT),-DSCARLET_AOT=1) -DGAMELIB_ID='"$(GAMELIB_FULL_ID)"' -c $< -o $@
 $(B)/rt/gamelib.o: $(GAMELIB_SRCS)
 $(B)/rt/gamelib.o: RTFLAGS += -DGAMELIB_ID='"$(GAMELIB_ID)"'
 # the start screen's build of it (runtime/gamebuild.c) uses the same flags
@@ -215,6 +230,9 @@ $(GAMELIB): $(GEN_OBJ) | $(EXE)
 	mv -f $@.tmp $@
 	echo $(GAMELIB_FULL_ID) > $@.id
 
+ifeq ($(SCARLET_AOT),1)
+$(B)/rt/ui/launcher.o: runtime/ui/scarlet_launcher.inc
+endif
 $(B)/rt/ui/%.o: runtime/ui/%.mm $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(UIFLAGS) -c $< -o $@
@@ -240,14 +258,53 @@ gen:
 	cd tools && ../$(PY) gen.py sdk ../$(EXEFS)/sdk 0x7008000000 ../$(GEN)/sdk --hle ../runtime/hle/hle_symbols.txt $(GENSIMD)
 	cd tools && ../$(PY) gen.py main ../$(EXEFS)/main 0x7000000000 ../$(GEN)/main $(GENSIMD)
 
+# Scarlet is a separate AOT target.  No ZA/LAS game patches and no reuse of their
+# generated module cache.  EXEFS can be an absolute Windows path (quoted).
+# Run with GEN=generated-scarlet B=build/scarlet; this target only LIFTS code.
+# It does NOT make the ZA runtime a playable Scarlet port.
+SCARLET_EXEFS ?= $(EXEFS)
+gen-scarlet:
+	@test -n "$(PY)" || { echo "Python venv missing: run tools/setup_windows.ps1"; exit 2; }
+	"$(PY)" tools/gen.py sdk "$(SCARLET_EXEFS)/sdk" 0x7008000000 "$(GEN)/sdk" --hle runtime/hle/hle_symbols.txt $(GENSIMD) --game scarlet
+	"$(PY)" tools/gen.py main "$(SCARLET_EXEFS)/main" 0x7000000000 "$(GEN)/main" $(GENSIMD) --game scarlet
+
+# Load the additional Scarlet module at a fixed, isolated guest base.  The
+# existing main/sdk generated sources and objects remain untouched.
+SCARLET_SUBSDK0_BASE := 0x7010000000
+gen-scarlet-submodules:
+	@test -n "$(PY)" || { echo "Python venv missing"; exit 2; }
+	@test -f "$(SCARLET_EXEFS)/subsdk0" || { echo "Missing Scarlet subsdk0 NSO"; exit 2; }
+	"$(PY)" tools/gen.py subsdk0 "$(SCARLET_EXEFS)/subsdk0" $(SCARLET_SUBSDK0_BASE) "$(GEN)/subsdk0" --game scarlet $(GENSIMD)
+
 gen-objs: $(GEN_OBJ)
 
 # Runtime objects only (no generated code, no link): quick compile check
 runtime-objs: $(RT_OBJ) $(BACKEND_OBJ) $(UI_OBJ)
 
-$(B)/rt/platform/windows_rc.o: runtime/platform/windows.rc docs/icon/icon.ico runtime/platform/windows.manifest
+# A user-provided Scarlet icon is installed locally by build_next_version.ps1.
+# Never replace the upstream ZA icon or require a binary asset in ordinary builds.
+ifeq ($(SCARLET_AOT),1)
+ifneq ($(wildcard docs/icon/scarlet.ico),)
+SCARLET_ICON_DEP := docs/icon/scarlet.ico
+SCARLET_ICON_DEFS := -DSCARLET_CUSTOM_ICON=1
+endif
+SCARLET_ICON_DEFS += -DSCARLET_AOT=1
+endif
+$(B)/rt/platform/windows_rc.o: runtime/platform/windows.rc docs/icon/icon.ico runtime/platform/windows.manifest $(SCARLET_ICON_DEP)
 	@mkdir -p $(dir $@)
-	$(WINDRES) -I docs/icon -I runtime/platform -O coff $< -o $@
+	$(WINDRES) $(SCARLET_ICON_DEFS) -I docs/icon -I runtime/platform -O coff $< -o $@
+
+# Build the original Scarlet PC Win32/GDI+ launcher alongside the native
+# Scarlet runtime. Reuses the exact Scarlet ICO resource and original palette.
+ifeq ($(SCARLET_AOT),1)
+ifeq ($(PLATFORM),windows)
+$(B)/ScarletLauncher.exe: launcher/ScarletLauncher.cpp $(B)/rt/platform/windows_rc.o
+	@mkdir -p $(dir $@)
+	$(CXX) -O2 -std=c++17 -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
+		-municode -mwindows $< $(B)/rt/platform/windows_rc.o -o $@ \
+		-lgdiplus -ldwmapi -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi -luxtheme -lole32 -lgdi32
+endif
+endif
 
 VERSION  := $(shell sed -n 's/^\#define LARECOMP_VERSION "\(.*\)"/\1/p' runtime/ui/launcher.mm)
 
@@ -363,7 +420,7 @@ appimages:
 smoketest:
 	tools/linux/smoketest.sh
 
-.PHONY: dmg all gen gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
+.PHONY: dmg all gen gen-scarlet gen-scarlet-submodules gen-helper gen-objs runtime-objs deps deps-windows app dist rando-helper appimage appimages smoketest
 
 build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime/nvn/maxwell/shader.h
 	clang -O1 -fobjc-arc -framework Metal -framework Foundation -o $@ tools/test_shaders.m runtime/nvn/maxwell/translate.c

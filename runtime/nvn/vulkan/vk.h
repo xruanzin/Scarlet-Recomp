@@ -252,6 +252,7 @@ void vk_pipeline_cache_save(void);
 bool vk_format_alpha_one(uint32_t nvn_format);
 // View of t (optionally through an NVN texture view) for rendering or sampling.
 VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool render, int want_textype);
+VkImageView vk_sample_view(NvnTexture *t, TexBackend *b, const NvnTextureView *v, bool has_view, int want_textype);
 // Attachment view of every layer in range (3D targets: slices, as a 2D array); *layers = its layer count.
 VkImageView vk_render_view(NvnTexture *t, const NvnTextureView *v, bool has_view, uint32_t *layers);
 VkImageView vk_image_view(TexBackend *b, VkImageViewType type, VkFormat fmt, uint32_t lv0, uint32_t nlv, uint32_t ly0,

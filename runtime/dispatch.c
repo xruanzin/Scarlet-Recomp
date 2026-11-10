@@ -9,7 +9,8 @@
 #include "hle.h"
 
 typedef struct { const uint64_t *addrs; const GuestFn *fns; uint64_t count, lo, hi; } FnTable;
-static FnTable tables[2];
+static FnTable tables[3];
+static int table_count;
 
 // HLE stubs live at fake addresses HLE_BASE + 16*i
 #define MAX_HLE 4096
@@ -115,12 +116,24 @@ void *hle_alloc(uint64_t size) {
 void dispatch_init(void) {  // (after gamelib_load)
     const GameLibTables *g = gamelib_tables();
     uint64_t nm = *g->main_count, ns = *g->sdk_count;
+    if (!nm || !ns) FATAL("empty main/sdk AOT function table\n");
     tables[0] = (FnTable){g->main_addrs, g->main_fns, nm, g->main_addrs[0], g->main_addrs[nm - 1]};
     tables[1] = (FnTable){g->sdk_addrs, g->sdk_fns, ns, g->sdk_addrs[0], g->sdk_addrs[ns - 1]};
+    table_count = 2;
+    if (g->subsdk0_count && *g->subsdk0_count) {
+        uint64_t nsub = *g->subsdk0_count;
+        if (!g->subsdk0_addrs || !g->subsdk0_fns) FATAL("subsdk0 table is incomplete\n");
+        tables[2] = (FnTable){g->subsdk0_addrs, g->subsdk0_fns, nsub,
+                              g->subsdk0_addrs[0], g->subsdk0_addrs[nsub - 1]};
+        table_count = 3;
+        LOG("[dispatch] subsdk0: %llu compiled functions\n", (unsigned long long)nsub);
+    } else {
+        tables[2] = (FnTable){0};
+    }
 }
 
 GuestFn dispatch_lookup(uint64_t addr) {
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < table_count; t++) {
         FnTable *ft = &tables[t];
         if (addr < ft->lo || addr > ft->hi) continue;
         uint64_t lo = 0, hi = ft->count;
@@ -138,16 +151,42 @@ GuestFn dispatch_lookup(uint64_t addr) {
 #define DCACHE 4096
 static __thread struct { uint64_t addr; GuestFn fn; } dcache[DCACHE];
 
-// Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf, the oldest replaced when full
-#define NJMP 32
-static __thread RtJmp jmps[NJMP];
-static __thread unsigned jmp_next;
+// Guest setjmp sites of this thread (cpu.h RtJmp). A live outer setjmp can survive arbitrarily many
+// distinct inner buffers: a bounded FIFO can lose Scarlet's return to 7000026ca4. Keep stable
+// allocations per buffer (never move a captured host jmp_buf), freed when the host thread exits.
+typedef struct JmpSite { RtJmp j; struct JmpSite *next; } JmpSite;
+static pthread_key_t jmp_key;
+static pthread_once_t jmp_once = PTHREAD_ONCE_INIT;
+static void jmp_sites_free(void *ptr) {
+    JmpSite *p = ptr;
+    while (p) { JmpSite *next = p->next; free(p); p = next; }
+}
+static void jmp_sites_init(void) {
+    if (pthread_key_create(&jmp_key, jmp_sites_free)) FATAL("cannot create setjmp registry key\n");
+}
+static JmpSite *jmp_sites(void) {
+    if (pthread_once(&jmp_once, jmp_sites_init)) FATAL("cannot initialize setjmp registry\n");
+    return pthread_getspecific(jmp_key);
+}
 RtJmp *rt_setjmp_site(Cpu *c, uint64_t ret) {
-    RtJmp *j = NULL;
-    for (int i = 0; i < NJMP && !j; i++) if (jmps[i].buf == c->x[0]) j = &jmps[i];
-    if (!j) j = &jmps[jmp_next++ % NJMP];
-    j->buf = c->x[0], j->ret = ret, j->sp = c->sp;
-    return j;
+    JmpSite *head = jmp_sites(), *p = head;
+    while (p && p->j.buf != c->x[0]) p = p->next;
+    if (!p) {
+        p = calloc(1, sizeof *p);
+        if (!p) FATAL("cannot allocate setjmp site\n");
+        p->next = head;
+        if (pthread_setspecific(jmp_key, p)) {
+            free(p);
+            FATAL("cannot register setjmp site\n");
+        }
+    }
+    p->j.buf = c->x[0], p->j.ret = ret, p->j.sp = c->sp;
+    return &p->j;
+}
+static RtJmp *rt_findjmp(Cpu *c) {
+    for (JmpSite *p = jmp_sites(); p; p = p->next)
+        if (p->j.buf && p->j.ret == c->pc && p->j.sp == c->sp) return &p->j;
+    return NULL;
 }
 
 __attribute__((noinline)) static GuestFn dispatch_slow(Cpu *c) {
@@ -165,8 +204,8 @@ __attribute__((noinline)) static GuestFn dispatch_slow(Cpu *c) {
         if (overrides[i].addr == pc) return overrides[i].fn;
     GuestFn f = dispatch_lookup(pc);
     if (!f) {
-        for (int i = 0; i < NJMP; i++)  // a guest longjmp returning to its setjmp
-            if (jmps[i].buf && jmps[i].ret == pc && jmps[i].sp == c->sp) longjmp(jmps[i].host, 1);
+        RtJmp *j = rt_findjmp(c);  // a guest longjmp returning to its setjmp
+        if (j) longjmp(j->host, 1);
         uint64_t off;
         const char *s = loader_symbol_at(c->x[30], &off);
         FATAL("no function at %llx (lr=%llx %s+%llx)\n", pc, c->x[30], s ? s : "?", off);
@@ -213,10 +252,11 @@ const char *rt_host_fn_name(uint64_t pc, uint64_t *offset) {
     static uint64_t n;
     static __thread char name[32];
     if (!byhost) {
-        uint64_t total = tables[0].count + tables[1].count, k = 0;
+        uint64_t total = 0, k = 0;
+        for (int t = 0; t < table_count; t++) total += tables[t].count;
         uint64_t (*v)[2] = malloc(total * sizeof *v);
         if (!v) return NULL;
-        for (int t = 0; t < 2; t++)
+        for (int t = 0; t < table_count; t++)
             for (uint64_t i = 0; i < tables[t].count; i++) {
                 v[k][0] = (uint64_t)(uintptr_t)tables[t].fns[i];
                 v[k++][1] = tables[t].addrs[i];
