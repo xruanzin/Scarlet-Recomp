@@ -26,3 +26,7 @@ __pycache__/
 /tools/hdtools/
 # Claude Code: machine-specific notes
 CLAUDE.local.md
+
+# Local player-owned Dynamic FPS patch and runtime settings (never commit mod data)
+/user/
+**/scarlet-dfps-v4.pchtxt
