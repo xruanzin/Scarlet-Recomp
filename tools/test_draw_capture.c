@@ -6,7 +6,7 @@
 
 int main(void) {
     DrawCapture c = {0};
-    assert(draw_capture_parse(&c, "deadcafe, 00123456789abcdef"));
+    assert(draw_capture_parse(&c, "deadcafe, 0123456789abcdef"));
     assert(c.nhashes == 2);
     assert(draw_capture_take(&c, true, 100, UINT64_C(0xdeadcafe)));
     assert(c.used == 1 && c.frame == 100);
