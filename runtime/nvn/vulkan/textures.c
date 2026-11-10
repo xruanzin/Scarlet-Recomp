@@ -576,14 +576,17 @@ static TexBackend *tex_backend(NvnTexture *t) {
 static void hd_forget(NvnTexture *t);  // (HD texture packs, below)
 void backend_texture_destroyed(NvnTexture *t) {
     TexBackend *b = t->backend;
+    // Bound state exists even before lazy backend creation (bind, finalize,
+    // later clear/draw). Always invalidate it before the host object is freed.
+    extern void vk_alias_texture_destroyed(NvnTexture *t);
+    extern void vk_exec_texture_destroyed(NvnTexture *t);
+    extern void vk_device_texture_destroyed(NvnTexture *t);
+    vk_alias_texture_destroyed(t);
+    vk_exec_texture_destroyed(t);
+    vk_device_texture_destroyed(t);
+    hd_forget(t);
+    b = t->backend;  // alias handover may have materialized the backend
     if (b) {
-        extern void vk_alias_texture_destroyed(NvnTexture *t);  // (exec.c copy aliases: a source's contents handed over)
-        vk_alias_texture_destroyed(t);
-        extern void vk_exec_texture_destroyed(NvnTexture *t);  // (exec.c: bound render targets and snapshots forget it)
-        vk_exec_texture_destroyed(t);
-        extern void vk_device_texture_destroyed(NvnTexture *t);  // (device.c: the last presented texture)
-        vk_device_texture_destroyed(t);
-        hd_forget(t);
         live_remove(b);
         destroy_image(b);
         free(b->pending_rgba);

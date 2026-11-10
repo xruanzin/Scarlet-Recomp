@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cpu.h"
@@ -44,6 +45,15 @@ static inline bool gamelib_full_id(const char *game_dir, char *out, size_t size)
     if (!ok) return false;
     int n = snprintf(out, size, "%s%s-", GAMELIB_ID, gamelib_old_cpu() ? "-v2" : "");  // (an x86-64-v2 build: its own)
     for (int i = 0; i < 8 && n + 2 < (int)size; i++) n += snprintf(out + n, size - n, "%02X", hdr[0x40 + i]);
+#ifdef SCARLET_AOT
+    // A patched AOT library MUST NOT load against unpatched guest memory (or vice versa).
+    // An opt-in mode suffix isolates both library id and build-cache receipts.
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps) {
+        if (n + 9 >= (int)size) return false;
+        snprintf(out + n, size - n, "-dfpsasm");
+    }
+#endif
     return true;
 }
 

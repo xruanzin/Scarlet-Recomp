@@ -470,6 +470,7 @@ static NvnTexture *texture_from_builder(uint64_t b) {
 
 NVN(nvnTextureInitialize) {
     NvnTexture *t = texture_from_builder(A(1));
+    nvn_texture_publish(t);
     if (t->flags & 2)
         LOG("[nvn] video texture %p: %ux%u fmt %#x flags %#x target %u addr %llx stride %llu\n", t, t->width, t->height,
             t->format, t->flags, t->target, t->addr, t->stride);
@@ -483,6 +484,7 @@ static void pool_entries_forget(NvnTexture *t);
 // it see the slots empty, as without the render thread. (The NvnTexture stays allocated until then, so no other
 // texture can take its address while a slot still names it.)
 void nvn_texture_destroy(NvnTexture *t) {
+    nvn_texture_retire(t);
     pool_entries_forget(t);
     backend_texture_destroyed(t);
     free(t);
