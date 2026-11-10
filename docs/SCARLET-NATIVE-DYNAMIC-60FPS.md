@@ -1,36 +1,40 @@
-# Native 60 FPS: automatic Dynamic FPS AOT selection (Scarlet 4.0.0)
+# Scarlet 4.0.0 — native adaptive 60 FPS prototype
 
-The existing **60 FPS** launcher selection automatically uses the player's locally installed, validated **Fl4sh Dynamic FPS Scarlet v4.0.0 ASM** patch. This is **not** another UI mode. It uses the project's existing static recompiler integration, so the altered ARM64 instructions are translated into the generated Windows game library and the same patch is applied to private guest memory. A plain emulator-style ExeFS mods folder would not work with AOT code.
+The existing **60 FPS** launcher option enables the Scarlet-Recomp host's own adaptive frame clock. It is implemented in C and runs as part of the native Windows/Vulkan runtime. **No third-party mod, .pchtxt file, additional launcher setting, or special AOT library is required.**
 
-## Install once, from your own original mod ZIP
+## What actually changed
 
-The original author is **Fl4sh (@Fl4sh9174)**. Download the original patch yourself; this repository and the release ZIP **do not distribute** the author's patch contents. Only the validated **[ASM] Final Release / 3.0.1-4.0.0.pchtxt** variant is supported, and only for Scarlet's exact 4.0.0 main build. **Do not combine it with the static 60 FPS patch or Exlaunch variant.**
+- The runtime still validates Scarlet 4.0.0 and initializes a 60 Hz frame period.
+- A native present-clock estimator samples frame presentation timing, smooths short scheduler jitter, and bounds unusually slow frames. A steady 60 FPS remains fixed at 16,666,667 ns; sustained sub-60 cadence can gradually adjust the period up to 33,333,334 ns.
+- The current native prototype atomically updates the **already-validated Scarlet frame-period guest field** at `MAIN+0x03c2fbb0`. No new guest code, copyrighted game data, or third-party ASM bytes are added. The 30 FPS path is unchanged.
+- The clock's pure timing estimator has standalone regression tests in `tools/test_scarlet_native_frame_clock.c`, independent of game files.
+- An older user-controlled `SCARLET_DFPS_PCHTXT` experimental path is retained separately for historical A/B tests, but the native launcher does **not require, import, or activate** a mod.
 
-From a PowerShell console, in a cloned source checkout:
+## Current limitations
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\import_dfps_zip.ps1 -ModZip 'D:\Downloads\pokemon_scarlet_mods.zip' -RuntimeDir 'D:\Scarlet-Recomp\build\dist\Scarlet-Recomp-windows\Scarlet-Recomp'
-```
+**This is not a port of Fl4sh's entire 153-entry ASM patch.** That patch changes multiple game timing and movement sites; our native prototype currently adjusts only the known game frame-period field. It is an independently implemented host-side timing approach, **not proof** that the character/camera shaking is fixed. No game-code or mod payload is distributed.
 
-Replace `-ModZip` with the location of your own ZIP. The script verifies the patch's exact SHA-256 fingerprint and extracts **only** the 3,269-byte ASM text into `<runtime>\user\mods\scarlet-dfps-v4.pchtxt`. Neither the ZIP nor game assets are modified. You can alternatively manually extract the original 4.0.0 ASM patch to that exact path.
+The game itself still needs to be tested at 60 FPS. In particular, writing the guest period from the presentation thread while the simulation reads it needs Windows runtime and concurrency validation before merging. Review whether this period is the right simulation-time source; if the camera's smoothing is calculated elsewhere, a second native hook at a validated timing consumer may be needed. Do not ship as a stable gameplay fix until then.
 
-Launch Scarlet normally and select **60 FPS**. The launcher configures this FPS **before** background AOT generation. The runtime detects the local patch during both `--prepare-aot` and `--play`, and the existing generator/guest adapters verify the full 153-entry fingerprint before use. No extra toggle or manual `SCARLET_DFPS_PCHTXT` setting is required.
+## Build and A/B validation
 
-- At **30 FPS**, no automatic Dynamic FPS patch is applied.
-- At **60 FPS** with a valid imported patch, the native Dynamic FPS AOT variant is used. Because its game-code ID ends in `-dfpsasm`, the launcher may need to recompile the game library when switching from 30 or static 60 FPS; it must not reuse an incompatible `lasgame.dll`.
-- At **60 FPS** without that local patch, the existing static 60 FPS behavior remains as a fallback, with a message in the runtime log. It may exhibit the walking/camera jitter under investigation.
-- At **120/240 FPS**, the patch is not activated; those targets remain separate experimental modes.
+Work from an **isolated test build**, not the known-good ZIP. The source branch is `feature/scarlet-native-auto-dfps-60fps-20261110`; its PR stays draft pending testing. Maintain 60 FPS in the existing launcher. No patch installation step is needed.
 
-To diagnose, look in `user\log\scarlet-game.log` for:
+Check `user/log/scarlet-game.log` for:
 
 ```text
-[scarlet-fps] 60 FPS native Dynamic ASM selected automatically from user/mods
-[scarlet-fps] experimental Scarlet Dynamic FPS ASM active; static frame-period patch disabled
-[scarlet-dfps] applied 153 verified ASM entries to private guest memory
+[scarlet-fps] requested 60 FPS, period 16666667 ns
+[scarlet-fps] native adaptive frame clock selected (experimental, no external patch)
+[scarlet-fps] native 60 FPS adaptive frame-period update enabled (A/B experimental)
 ```
 
-## Test gates
+On the same saved game and graphics settings compare:
+1. 30 FPS walking, camera still; 30 FPS standing, rotating camera
+2. Known-good static 60 FPS walking and camera rotation
+3. Native adaptive 60 FPS (test build) walking and camera rotation
 
-This integration has **not yet been built or gameplay-tested on Windows**. The mod author reports fixes for walking/running stutter on emulators, but this does **not** guarantee the camera shake is fixed in a statically recompiled Vulkan runtime. Compare (1) walking at 30 FPS; (2) walking at static 60 FPS; (3) walking with native Dynamic 60 FPS, including turning the camera while standing still, battles and cutscenes. Verify the character's eyes/eyebrows and chair animation remain correct.
+Record actual FPS/frametime; watch for unnatural character motion, battles, animation speed, textures/eyebrows, chair animation, flicker and pauses. If symptoms worsen, revert to the known-good ZIP. Passing isolated unit tests is **not** validation of frame pacing, animation physics or graphics in the game.
 
-Do not publish the modified ZIP as a stable 60-FPS release before testing the new AOT build, clean installation, and proper author credit. Preserve your known-good build and saves throughout testing.
+## License and credits
+
+The external Dynamic FPS mod ZIP was examined as a behavioral reference, but none of its ASM payload was included in Scarlet-Recomp's code or public assets. Credit to Fl4sh for the separate community Dynamic FPS work; the native estimator is an independent implementation and does not claim to reproduce the entire mod.
