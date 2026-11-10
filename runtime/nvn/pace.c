@@ -215,7 +215,7 @@ static void scarlet_native_present_clock(void) {
     }
     if (!active) {
         scarlet_native_clock_reset(&clock);
-        LOG("[scarlet-fps] native 60 FPS adaptive frame-period update enabled (A/B experimental)\\n");
+        LOG("[scarlet-fps] native 60 FPS adaptive frame-period update enabled (A/B experimental)\n");
         active = true;
     }
     const uint32_t period = scarlet_native_clock_step(&clock, plat_now_ns());
