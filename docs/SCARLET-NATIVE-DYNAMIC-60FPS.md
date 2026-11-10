@@ -9,10 +9,7 @@ The original author is **Fl4sh (@Fl4sh9174)**. Download the original patch yours
 From a PowerShell console, in a cloned source checkout:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass \
-  -File .\tools\scarlet\import_dfps_zip.ps1 \
-  -ModZip 'D:\Downloads\pokemon_scarlet_mods.zip' \
-  -RuntimeDir 'D:\Scarlet-Recomp\build\dist\Scarlet-Recomp-windows\Scarlet-Recomp'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\import_dfps_zip.ps1 -ModZip 'D:\Downloads\pokemon_scarlet_mods.zip' -RuntimeDir 'D:\Scarlet-Recomp\build\dist\Scarlet-Recomp-windows\Scarlet-Recomp'
 ```
 
 Replace `-ModZip` with the location of your own ZIP. The script verifies the patch's exact SHA-256 fingerprint and extracts **only** the 3,269-byte ASM text into `<runtime>\user\mods\scarlet-dfps-v4.pchtxt`. Neither the ZIP nor game assets are modified. You can alternatively manually extract the original 4.0.0 ASM patch to that exact path.
