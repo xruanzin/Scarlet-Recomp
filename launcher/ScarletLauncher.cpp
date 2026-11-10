@@ -1035,9 +1035,9 @@ static void StartNativeGame() {
 void LaunchGame() {
     if (g_importing.load()) return;
     SaveSettings();
-    // Freeze the selected FPS before the background AOT builder starts. The
-    // 60-FPS Dynamic ASM changes the generated library ID and must be active
-    // in BOTH --prepare-aot and --play (not just after compilation).
+    // Keep the selected native FPS consistent between the optional background
+    // AOT check and the game process. The built-in native 60-FPS timing path
+    // does not require a mod or another game-library variant.
     SetNativeFpsEnvironment();
     const fs::path folder=GetText(g_game_edit);
     auto packages=PackageFiles(folder);
