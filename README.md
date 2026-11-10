@@ -2,82 +2,61 @@
 
 # Scarlet-Recomp
 
-**Native Windows runtime for Pokémon Scarlet 4.0.0, based on static recompilation and Vulkan.**
+**Pokémon Scarlet 4.0.0 — native Windows runtime**
 
-[Português (Brasil)](README.pt-BR.md) · [Known limitations](#known-limitations) · [Release preparation](docs/RELEASE-v1.0.0.md)
+Static recompilation (AOT) · Vulkan · Windows 11 x64
+
+[Português (Brasil)](README.pt-BR.md) · [Release notes](docs/RELEASE-v1.0.0.md) · [Build & setup](docs/BUILD-windows.md) · [Issues](https://github.com/xruanzin/Scarlet-Recomp/issues)
 
 </div>
 
-> **v1.0.0 preparation — not a verified public installer.** The existing Windows build runs Pokémon Scarlet 4.0.0 in development tests, but a clean-machine installation, the public package and broader compatibility still need verification. Do not label it a finished, universally playable release.
+---
 
-## What this project is
+> [!IMPORTANT]
+> **v1.0.0 is in preparation.** The game runs in local development tests, but the portable ZIP and first-run setup have **not** been verified on a clean Windows installation. There is no published, validated release yet.
 
-Scarlet-Recomp is an independent, unofficial effort to run **Pokémon Scarlet 4.0.0** on Windows using ahead-of-time (AOT) recompilation of code from a user's own game dump. The host runtime implements Nintendo Switch services and NVN graphics through Vulkan; the goal is not to launch the game inside a suyu-based emulator.
+## About
 
-The repository retains an architecture derived from [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) and [LASRecomp](https://github.com/peiikai/LASRecomp), with Scarlet-specific runtime changes, an NSP/XCI importer, and a custom Windows launcher.
+Scarlet-Recomp is an **unofficial, community-developed native Windows port** of Pokémon Scarlet 4.0.0. It recompiles code from the player's own game files ahead of time and runs it with a Windows/Vulkan runtime, rather than using a suyu-based emulator.
 
-## Current features
+Based on the architecture of [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) and [LASRecomp](https://github.com/peiikai/LASRecomp), with Scarlet-specific integration and graphics work.
 
-- Windows 11 native runtime using Vulkan and AOT-compiled guest modules
-- Scarlet launcher with file/folder selection for NSP/XCI, local key-file pickers and import status
-- Automatic Scarlet-specific early TLS/allocator startup: no experimental toggle or boot environment variables required
-- Base game + **update 4.0.0** import path, with optional DLC handling
-- Keyboard/controller handling and a virtual keyboard for name entry
-- Selectable 30 / 60 / 120 / 240 FPS **targets**; 30 FPS is the tested baseline and higher targets are experimental
-- Vulkan graphical fixes and optional upscaling features under development
+## Current state
 
-Features above describe implemented development paths, not a guarantee that they work across all PCs, game scenes or configurations.
+| Component | Status |
+| --- | --- |
+| Native Windows/Vulkan runtime | Boots and runs in local development tests |
+| Custom launcher and NSP/XCI importer | Implemented; clean-install workflow not yet verified |
+| Pokémon Scarlet update 4.0.0 | Targeted version |
+| 30 FPS | Recommended baseline |
+| 60 FPS / 120 FPS / 240 FPS | Experimental targets; timing and physics may differ |
+| Public portable ZIP | In preparation; no verified release published |
 
-## Requirements and game files
+**Known issues:** eyes and eyebrows may disappear in some cutscenes; the enrollment-form portrait may appear black; other graphical or stability issues remain possible. Some earlier character-animation and fullscreen flicker problems were resolved in specific local builds, but require verification in the packaged v1.0.0.
 
-- Windows 11 64-bit; a Vulkan-capable graphics driver
-- A local, legally obtained copy of Pokémon Scarlet and the matching **4.0.0** update
-- Your own decryption keys for the local importer, where required
-- A game-derived `lasgame.dll` AOT build generated **locally from your own game files**, not distributed by this project
+## Requirements and setup
 
-**No NSP/XCI, extracted game files, decryption keys, tickets, saves, or game-derived AOT DLL should be committed or attached to a public release.**
+You need **Windows 11 x64**, a Vulkan-capable GPU/driver, **your own legally obtained Pokémon Scarlet base game and update 4.0.0**, and your own keys if required for local import.
 
-## Official prerequisite downloads
+When a validated package is available, it will appear in [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). Its launcher is designed to import the player's files and generate the game-specific AOT library locally.
 
-- [Microsoft Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe) — if required by Windows
-- [NVIDIA graphics driver](https://www.nvidia.com/Download/index.aspx) or [AMD graphics driver](https://www.amd.com/en/support/download/drivers.html) — up-to-date Vulkan support
-- [Python for Windows](https://www.python.org/downloads/windows/), [MSYS2](https://www.msys2.org/) and [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) — for **compilation and local AOT generation**, not for running an already built launcher
-- [Full prerequisites and credits](docs/RELEASE-DEPENDENCIES-v1.0.0.md)
+> [!NOTE]
+> This repository **does not distribute** the game, NSP/XCI dumps, keys, RomFS, saves, or a game-derived `lasgame.dll`. Initial setup can take time and is not yet validated on an unrelated Windows PC.
 
-The ZIP packager now includes `lasgen/`, the Zig compiler (`zig/`), `gamelib-src/` and a self-contained importer, following the ZA Recomp approach. The Scarlet launcher invokes local AOT generation from the player's own files. **A clean-machine end-to-end test is still required** before claiming that the ZIP works out of the box.
+## Development and documentation
 
-## Preparing the distributable runtime ZIP
-
-After locally building the Windows runtime, the maintainer can run:
+The Windows packaging workflow for maintainers is:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\create_release_zip.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_release_candidate.ps1
 ```
 
-The package explicitly excludes game dumps, keys, saves and `lasgame.dll`. Audit the included third-party licenses and test on a clean Windows machine before publishing.
+That command assumes a configured development environment and existing AOT build. It is **not** an end-user install command.
 
-## Building for development
+[Windows build guide](docs/BUILD-windows.md) · [v1.0.0 preparation checklist](docs/RELEASE-CHECKLIST-v1.0.0.md) · [Dependencies](docs/RELEASE-DEPENDENCIES-v1.0.0.md) · [Development notes](docs/SCARLET-BOOTSTRAP.md)
 
-This is **not yet a standalone binary installation guide**. The current incremental build assumes the owner's existing AOT output:
+## Credits
 
-```powershell
-# Windows, with development dependencies and an existing Scarlet AOT build
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_next_version.ps1
-```
+Developed by **xruanzin**, with technical assistance from **ChatGPT (OpenAI)**. Thanks to the developers and contributors of [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and the other upstream components.
 
-It does **not** create `lasgame.dll` on its own. For the AOT preparation and requirements, see [Scarlet bootstrap notes](docs/SCARLET-BOOTSTRAP.md) and [Windows launcher details](docs/SCARLET-ORIGINAL-LAUNCHER.md). Those documents contain historical development notes, not a verified clean-install tutorial.
-
-## Known limitations
-
-- **The character photograph on the enrollment/matriculation form is black.** The original in-game photograph generation remains unresolved. No external-image fallback is part of this release plan.
-- Visual issues may remain in some character, sky or intermediate rendering passes.
-- Higher FPS options have not been validated for physics, timing, animation and stability.
-- Import, AOT setup and launch need clean Windows machine verification before distributing a ready-to-use download.
-
-See [v1.0.0 release draft](docs/RELEASE-v1.0.0.md) and [release checklist](docs/RELEASE-CHECKLIST-v1.0.0.md).
-
-## Credits and legal
-
-This is a **community project**, not affiliated with Nintendo, Game Freak or The Pokémon Company. Pokémon and all associated game content belong to their respective rights holders.
-
-Architecture and underlying source come from [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and other upstream contributors. Retain upstream notices and third-party licenses. See [LICENSE](LICENSE); its permission does not extend to proprietary Pokémon Scarlet game content.
+This is an independent project, **not affiliated with Nintendo, Game Freak, or The Pokémon Company**. See [LICENSE](LICENSE); source-code licensing does not grant rights to redistribute game content.
