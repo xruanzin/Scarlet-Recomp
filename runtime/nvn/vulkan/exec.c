@@ -21,6 +21,8 @@
 #include "vk.h"
 #include "record.h"
 #include "vk_fsr2.h"
+#include "draw_capture.h"
+#include "written_ranges.h"
 #include "../renderer.h"
 #include "../pace.h"
 #include "../recolour.h"
@@ -236,7 +238,7 @@ static bool cq_calibrated;
 static int counter_mode = -1;  // 0 cpu, 1 frozen, 2 gpu
 static uint64_t stat_counters_gpu;
 
-// Pokémon Z-A sizes its dynamic resolution from these counters - and the GPU time they show includes our translation's
+// PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A sizes its dynamic resolution from these counters - and the GPU time they show includes our translation's
 // passes, so on any PC it sat at its floor (55-65% of 1080p: pixelated, aliased). Unless the setting dynamic_res =
 // game, Z-A's counters show no GPU time (as "frozen"): it renders at full resolution, its frame mode being its own
 // (rt_za_frame_cfg). F1 > Dynamic resolution; applies at once.
@@ -1379,6 +1381,7 @@ bool renderer_texture_level_fresh(NvnTexture *t);
 bool renderer_texture_frame_fresh(NvnTexture *t);
 void renderer_texture_mark_presented(NvnTexture *t);
 uint64_t renderer_present_count(void);
+uint64_t renderer_exec_frame(void);
 void renderer_save_texture_tex(TexBackend *b, const char *path);
 static float pass_sx = 1, pass_sy = 1;
 static float vp_sx = 1, vp_sy = 1, vp_ox = 0, vp_oy = 0;
@@ -1449,6 +1452,20 @@ static inline bool ss_need(uint32_t bit, bool same) {
     return true;
 }
 
+static DrawCapture focused_capture;
+static bool focused_capture_draw;
+static bool focused_capture_on(void) {
+    static bool initialized;
+    if (!initialized) {
+        initialized = true;
+        const char *spec = ENV("SCARLET_CAPTURE_FSHASH");
+        if (spec && !draw_capture_parse(&focused_capture, spec))
+            LOG("[draw-capture] invalid hash list; targeted capture disabled\n");
+        if (focused_capture.nhashes) LOG("[draw-capture] enabled %u hashes, limit 24 draws per captured frame\n", focused_capture.nhashes);
+    }
+    return focused_capture.nhashes != 0;
+}
+
 static void vk_end_pass_at(int line);
 void vk_end_pass(void) { vk_end_pass_at(0); }
 #define vk_end_pass() vk_end_pass_at(__LINE__)
@@ -1457,7 +1474,7 @@ static void vk_end_pass_at(int line) {
     if (prof && line < 4096) prof_end_line[line]++;
     rec_CmdEndRendering(vk_cmd());
     in_pass = false;
-    if (g_debug_frame && debug_pass_rt.ncolor && debug_pass_rt.color[0] && debug_pass_rt.color[0]->backend) {
+    if (g_debug_frame && !focused_capture_on() && debug_pass_rt.ncolor && debug_pass_rt.color[0] && debug_pass_rt.color[0]->backend) {
         // rt_paths_init() chdirs into LARECOMP_DATA_ROOT (userdata in isolated runs).
         // Relative build/pass_*.png paths must exist there, NOT beside scarlet.exe.
         mkdir("build", 0755);
@@ -1776,7 +1793,7 @@ static const VkDynamicState DYN[] = {
 #define NDYN (sizeof DYN / sizeof DYN[0])
 // The dynamic states the pipelines take: without extended dynamic state 1 / 2 (vk.h VkCompat), their states (DYN[7..14],
 // DYN[15..16]) go into the pipelines instead.
-// (made once, but by whichever builds come first - Pokémon Z-A's startup shader preparation starts dozens on the
+// (made once, but by whichever builds come first - PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's startup shader preparation starts dozens on the
 // workers at once: each fills its own copy and stores the same values, then the count. The shared count it counted up
 // before ran past the array when two threads filled it together - garbage dynamic states, an NVIDIA driver crash in
 // vkCreateGraphicsPipelines about 1 start in 6)
@@ -2091,7 +2108,7 @@ static void compile_program(void *arg) {
 }
 
 // The guest memory window that shader global memory, the vertex cache and the texture upload checks cover: the heap
-// (SetHeapSize), or for a game on the SDK's virtual address memory, which has no heap (Pokémon Legends Z-A), its
+// (SetHeapSize), or for a game on the SDK's virtual address memory, which has no heap (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Legends Z-A), its
 // largest physical memory region (svcMapPhysicalMemory, at most HEAP_MAX). Picked once, at first use: shaders bake
 // the base in.
 typedef struct { uint64_t base, max; bool phys; } GWin;
@@ -2286,7 +2303,7 @@ static uint64_t prog_content_key(uint64_t vh, uint64_t fh, const ShaderKey *vkey
 }
 
 // The caches of programs and pipelines by key (get_program_, draw_): open addressing, doubled at half full. They were
-// fixed at 4096 / 8192 entries and never emptied: a long session filled them (Pokémon Z-A, ~29 minutes in, a new
+// fixed at 4096 / 8192 entries and never emptied: a long session filled them (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A, ~29 minutes in, a new
 // area's shaders) and the next new key probed forever - the render thread spun, the game froze. (Render thread only.)
 typedef struct { uint64_t key; void *val; } KvEnt;
 typedef struct { KvEnt *t; uint32_t cap, n; } KvTab;
@@ -3138,7 +3155,7 @@ void vk_alias_texture_destroyed(NvnTexture *t) {
     if (naliases) alias_before_write(t, 0, "freed");
 }
 
-// HDR (vk_hdr_encode): the game's picture before its HUD. Pokémon Z-A tone-maps its frame into an image of its own,
+// HDR (vk_hdr_encode): the game's picture before its HUD. PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A tone-maps its frame into an image of its own,
 // copies that opaque - edge anti-aliased on the way, so not the same pixels - into the image it presents, and draws the
 // HUD over it with blending. After an opaque draw into an image that has been presented, that image is copied
 // (hdr_snapshot, two: the game alternates two such images): what differs from the copy when it is shown is the HUD.
@@ -3264,7 +3281,7 @@ static void resolve_feedback(Prog *pr) {
             NvnTexture *t = shader_texture_object(sg, &infos[sg]->tex[i]);
             if (!is_attachment(t)) continue;
             // Drawn into one mip level above the base, reading the texture's other levels: a mip chain being built,
-            // no feedback loop - sampled in place. Pokémon Z-A builds its depth pyramid this way (each level from the
+            // no feedback loop - sampled in place. PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A builds its depth pyramid this way (each level from the
             // one above, the whole texture sampled at an explicit level); the snapshot held level 0 only and was
             // reused for the following levels, so most of the pyramid came out empty or stale, and the game's GPU
             // occlusion culling, which reads it, dropped visible objects: tables, statues, trees and stalls vanishing
@@ -3904,7 +3921,21 @@ static VkDescriptorBufferInfo cbuf_info(int stage, ShaderInfo *si, int k, uint32
     if (scan_once < 0) scan_once = getenv("LARECOMP_VK_NO_SCAN_ONCE") == NULL;
     if (gc_lazy && si->uses_gmem && scan_once) return ubo_span(guest_copy_ex(r.addr, size, true), size);
     if (gc_lazy && si->uses_gmem) gc_scan_pointers((const uint32_t *)(uintptr_t)r.addr, size);
-    return ubo_span(guest_copy(r.addr, size), size);
+    VkSpan copied = guest_copy(r.addr, size);
+    // Export the immutable upload snapshot actually returned to the descriptor,
+    // not a later reread of guest memory. Only two facial VS matrices, opt-in.
+    if (focused_capture_draw && stage == 0 && (k == 5 || k == 10) && copied.ptr) {
+        char path[160];
+        snprintf(path, sizeof path, "build/draw-capture/%llu_%02u_vs_cb%d.bin",
+            (unsigned long long)focused_capture.frame, focused_capture.used, k);
+        FILE *f = fopen(path, "wb");
+        size_t n = size < 256 ? (size_t)size : 256;
+        if (f) { fwrite(copied.ptr, 1, n, f); fclose(f); }
+        LOG("[draw-capture] VS CB%d guest %llx bound %llu uploaded %llu saved %zu offset %llu\n",
+            k, (unsigned long long)r.addr, (unsigned long long)r.size,
+            (unsigned long long)size, n, (unsigned long long)copied.off);
+    }
+    return ubo_span(copied, size);
 }
 
 // Global memory (shader LDG/STG, maxwell_gmem_base = gwin_base): the guest memory window imported as a GPU buffer
@@ -4042,7 +4073,7 @@ static bool whole_import_probe_oom(void) {
     return oom;
 }
 
-// Guest window bytes [lo, lo + size) for shader global memory (gmem_info; the window: gwin - the heap, or Pokémon Z-A's
+// Guest window bytes [lo, lo + size) for shader global memory (gmem_info; the window: gwin - the heap, or PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's
 // physical memory)
 static bool gmem_import(uint64_t lo, uint64_t size) {
     VkBuffer buf;
@@ -4413,7 +4444,7 @@ static uint32_t gmem_chunk_shift(void) {
 }
 static void gmem_chunk_decide(void) {
     int shift;
-    // Pokémon Z-A has no heap: its window (gwin: physical memory) is imported as one buffer, as before the chunks -
+    // PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A has no heap: its window (gwin: physical memory) is imported as one buffer, as before the chunks -
     // they are laid over HEAP_BASE / HEAP_MAX (data root's extracted/: asked here, the boot may come after this)
     extern bool game_files_are_la(const char *game_dir);
     if (!g_game_is_la || !game_files_are_la("extracted")) {
@@ -4815,13 +4846,13 @@ static VkBufferCopy gfast_cp[GMAP_MAX];       // its copies heap -> gfast_buf
 static int gfast_n;
 // The copy back after a storing dispatch: only the bound buffers' own bytes, gfast_buf -> heap. The merged ranges
 // above also span alignment padding and the gaps between buffers - other data, which the CPU (a frame ahead) or
-// earlier GPU work may rewrite while the dispatch runs: copied back, the stale bytes clobbered it (Pokémon Z-A: an
+// earlier GPU work may rewrite while the dispatch runs: copied back, the stale bytes clobbered it (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A: an
 // indirect draw's instance count became an old float, 2 billion instances, device lost).
 static VkBufferCopy gfast_back[16];
 static int gfast_back_n;
 // Even the exact bytes clobbered the CPU's writes: the game fills an indirect draw's index count / first index on the
 // CPU while the culling dispatch writes its instance count, both in one buffer. A frame ahead, the CPU wrote a new
-// mesh's counts there while the GPU worked on its copy; the copy back restored the old mesh's (Pokémon Z-A: ~12% of
+// mesh's counts there while the GPU worked on its copy; the copy back restored the old mesh's (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A: ~12% of
 // the culled draws used another mesh's index range - sheets and beams across the sky, the player sunk in a grey slab).
 // So a twin of the copy, untouched by the dispatch, goes along, and a merge shader writes back only the words that
 // differ from it. LARECOMP_VK_GFAST_MERGE=0: the plain copy back.
@@ -4869,7 +4900,7 @@ static VkDescriptorBufferInfo gfast_info(void) {
     return (VkDescriptorBufferInfo){gfast_buf, 0, GFAST_SIZE};
 }
 
-// ---- transform feedback mirror. Pokémon Z-A skins its characters with transform feedback - ~140 sessions a frame,
+// ---- transform feedback mirror. PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A skins its characters with transform feedback - ~140 sessions a frame,
 // their buffers in one ~6 MB arena - and its draws then read the results as vertex streams. Written into the guest
 // heap's import (host memory), every vertex was a scattered write across PCIe: 3 ms of GPU time a frame (7 with
 // mods/MaxLOD). Instead the sessions write a device-local mirror of the arena (XFB_BUFFER_INDEX), the vertex streams
@@ -4879,14 +4910,13 @@ static VkDescriptorBufferInfo gfast_info(void) {
 // lost the device on an invalid GPU read in exactly these skinning draws, with robust access on and submissions made
 // one at a time) - their transform feedback goes to the heap's import as before the mirror.
 #define XM_SIZE (64ull << 20)
-#define XM_CHUNK 256ull
 static VkBuffer xm_buf;
 static VmaAllocation xm_mem;
 static uint64_t xm_lo;  // guest address of the mirror's first byte (0: not placed yet)
-// the frame each chunk was last written by transform feedback (+1; 0: never): only this frame's are read from the
+// Exact ranges written by transform feedback in the current frame: only these are read from the
 // mirror - the game reuses the arena's memory (other data written by the CPU when areas / outfits change: read from
 // the mirror, a stale skinning drew the player black)
-static uint32_t xm_written[XM_SIZE / XM_CHUNK];
+static WrittenRanges xm_written;
 static VkBufferCopy xm_back[256];  // this submission's written ranges (mirror -> heap)
 static int xm_back_n;
 static bool xm_draw;  // this draw's transform feedback goes to the mirror
@@ -4896,7 +4926,14 @@ static bool xm_on(void) {
     if (on < 0) {
         const char *e = ENV("LARECOMP_VK_XFB_MIRROR");
         int cs = g_settings.gpu_compat[GPU_XFB_MIRROR];  // (F1 > Compatibility)
+        #ifdef SCARLET_AOT
+        // Scarlet facial skinning correctness: prefer the existing guest-memory
+        // path until the device-local XFB mirror is validated for this game.
+        // Explicit environment/F1 compatibility settings still take precedence.
+        on = e ? atoi(e) != 0 : cs != GPU_AUTO ? cs == GPU_ON : 0;
+#else
         on = e ? atoi(e) != 0 : cs != GPU_AUTO ? cs == GPU_ON : g_vk.props.vendorID != 0x1002;
+#endif
         if (e) LOG("[vk] transform feedback mirror %s (LARECOMP_VK_XFB_MIRROR=%s; explicit)\n",
                    on ? "on" : "off", e);
         else if (!on) LOG("[vk] transform feedback mirror off (%s; LARECOMP_VK_XFB_MIRROR=1: on)\n",
@@ -4909,10 +4946,7 @@ static bool xm_inside(uint64_t a, uint64_t n) { return xm_lo && a >= xm_lo && a 
 
 static bool xm_all_written(uint64_t a, uint64_t n) {
     if (!n || !xm_inside(a, n)) return false;
-    uint32_t now = (uint32_t)vk_frame_counter() + 1;
-    for (uint64_t c = (a - xm_lo) / XM_CHUNK; c <= (a + n - 1 - xm_lo) / XM_CHUNK; c++)
-        if (xm_written[c] != now) return false;
-    return true;
+    return written_contains(&xm_written, vk_frame_counter() + 1, a - xm_lo, n);
 }
 
 // before a transform feedback draw: can its buffers all go to the mirror? (then they're marked written, and queued
@@ -4943,8 +4977,7 @@ static bool xm_prepare(void) {
     for (int b = 0; b < 4; b++) {
         if (!xfb_addr[b] || !xfb_size[b]) continue;
         uint64_t o = xfb_addr[b] - xm_lo;
-        uint32_t now = (uint32_t)vk_frame_counter() + 1;
-        for (uint64_t c = o / XM_CHUNK; c <= (o + xfb_size[b] - 1) / XM_CHUNK; c++) xm_written[c] = now;
+        written_add(&xm_written, vk_frame_counter() + 1, o, xfb_size[b]);
         int i = 0;
         while (i < xm_back_n && !(xm_back[i].srcOffset == o && xm_back[i].size == xfb_size[b])) i++;
         if (i == xm_back_n) {
@@ -5151,7 +5184,7 @@ static bool pt_init(void) {
     return true;
 }
 
-// Pages outside the window: Pokémon Z-A's textures sit in the alias region (0x74..., its SDK's address regions), not in
+// Pages outside the window: PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's textures sit in the alias region (0x74..., its SDK's address regions), not in
 // the physical memory window - every check of theirs was "unknown" and sampled 4096 scattered bytes (~5500 a second
 // at 50 fps, 12 % of the render thread). The OS tracks writes over the whole guest space, so those pages get
 // generations too: a sparse table over [GUEST_LO, GUEST_HI), 2 MB pieces made on first use. (No GPU-written flag:
@@ -5415,7 +5448,7 @@ void vk_exec_reset(void) {
     gmem_size = gmem_tried = 0;
     gmem_lo = 0;
     xm_lo = 0, xm_back_n = 0;  // (the transform feedback mirror: placed again, nothing written yet)
-    memset(xm_written, 0, sizeof xm_written);
+    memset(&xm_written, 0, sizeof xm_written);
     for (int k = 0; k < gc_n; k++) {  // (lazy chunks: their pages are replaced too)
         if (gc[k].buf) { vkDestroyBuffer(g_vk.dev, gc[k].buf, NULL); vkFreeMemory(g_vk.dev, gc[k].mem, NULL); }
         memset(&gc[k], 0, sizeof gc[k]);
@@ -5641,7 +5674,7 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
                     // about the same depth counts as lit) is read with texelFetch at trunc(its queried size x the
                     // tap's uv): at the game's size that is the 4x4 block's centre, up to 2 texels from where the depth
                     // tap is - with the taps narrowed (sharpness 3-4) the id no longer belongs to the depth's texel and
-                    // the guard fails along a character's inner edges (dark streaks across a shirt, a Pokémon's
+                    // the guard fails along a character's inner edges (dark streaks across a shirt, a PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon's
                     // belly). Its real size and no scale instead: the id is read at the depth tap's own texel.
                     sc[0] = sc[1] = 1;
                 }
@@ -5698,7 +5731,7 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
             view = VK_NULL_HANDLE;  // (1: every compute shader - code addresses change between runs)
     }
     {   // A compute shader reading a scaled depth target with a mip chain at a non-integer scale (1.5x, Match display,
-        // Dynamic, the shares) gets a 1x1 dummy: no occluder, so nothing is culled for being hidden. That is Pokémon
+        // Dynamic, the shares) gets a 1x1 dummy: no occluder, so nothing is culled for being hidden. That is PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon
         // Z-A's GPU occlusion culling reading its depth pyramid (the scene depth's own mip levels). Scaled by 1.5 the
         // levels don't keep the ratio (135 -> 202, 33 -> 50, 16 -> 25), the culling read the wrong depths and dropped
         // visible objects - lamp posts, hedges, parts of buildings vanishing as the player walked. Integer scales are
@@ -5881,7 +5914,7 @@ static VkDescriptorSet stage_set(Prog *p, VkDescriptorSetLayout layout, uint32_t
 // ================================================================== compute
 typedef struct { Prog p; ShaderInfo *si; VkPipeline pipe; uint32_t local[3]; uint64_t code; } CsProg;
 
-// Compute programs run in 32-lane subgroups, as Maxwell's warps do. The game's compute shaders use ballot / shuffle / vote on a 32-lane warp (Pokémon Z-A's GPU culling
+// Compute programs run in 32-lane subgroups, as Maxwell's warps do. The game's compute shaders use ballot / shuffle / vote on a 32-lane warp (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's GPU culling
 // counts the visible instances of a batch with ballot + a leader's atomicAdd); AMD drivers run compute in 64-lane waves by default (RADV), where those counts are wrong:
 // whole parts of a scene (walls, arches, lamps, their shadows) were culled, and the translated shader could hang the GPU. Vulkan 1.3 requires the subgroup size control;
 // where the device cannot run 32 lanes (min > 32) nothing changes. LARECOMP_VK_CS_SUBGROUP=0: the driver's choice.
@@ -6038,7 +6071,7 @@ static void prep_job(void (*fn)(void *), void *arg) {
 }
 
 static _Atomic int prep_pipe_dups;  // records whose pipeline another record already made
-// (Pokémon Z-A: only once the game has set up its physical memory window - the translations bake its base and size
+// (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A: only once the game has set up its physical memory window - the translations bake its base and size
 // in, and before that it's Link's Awakening's heap: the start screen's preparation would have made every program with
 // the wrong one. Z-A's runs at its start instead, shader_prep.c shader_prep_boot)
 bool game_files_are_la(const char *game_dir);  // (runtime/game_addresses.c)
@@ -6331,6 +6364,8 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
 
 // ================================================================== draws
 static void debug_draw(Prog *pr, CmdRec *r, bool indexed);
+static void focused_draw_before(Prog *pr, CmdRec *r, bool indexed);
+static void focused_draw_image(const char *which);
 
 // Quads / fans / polygons as a 32-bit triangle index list.
 static uint32_t *expand_indices(uint32_t mode, uint32_t count, const void *indices, int itype, uint32_t first, uint32_t *out_count) {
@@ -6572,7 +6607,7 @@ static void fixed_state(FixedState *f, bool flip_x, bool flip_y, bool native, Vk
 
 // A draw of a handful of vertices - a full-screen pass: post-processing, a menu's backdrop, the composite into the
 // window image - whose shader or pipeline is still being built is waited for (a few ms, once) rather than skipped:
-// skipping one of those left the whole frame black (Pokémon Z-A: a black flash as a menu opened or closed). Not an
+// skipping one of those left the whole frame black (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A: a black flash as a menu opened or closed). Not an
 // effect's (blended() / scene_quad(), below): it waits as a scene draw.
 // Scene draws wait a little too: a pipeline already in the caches (cache/vk_pipelines.bin, the driver's, the SPIR-V
 // one) is built in 1-2 ms, but skipping the draw took the object off the screen for a whole frame - every time a
@@ -6814,7 +6849,7 @@ static void draw_(CmdRec *r, bool indexed) {
     }
     mv_note_draw(pr);
     if (fsr2_wanted() && fsr2_copy(pr)) return;  // (FSR 2 resolved the frame in place of the game's copy)
-    if (g_debug_frame) debug_draw(pr, r, indexed);
+    if (g_debug_frame && !focused_capture_on()) debug_draw(pr, r, indexed);
     if (ct_on()) ct_draw(pr, "draw");
     alias_draw_check();
     resolve_feedback(pr);
@@ -6826,6 +6861,10 @@ static void draw_(CmdRec *r, bool indexed) {
     bool lighting = gtao_is_lighting(pr);
     if (lighting) gtao_before_lighting(pr);  // (GTAO from the scene depth, before the lighting reads the G-buffer)
     if (water_is_surface(pr)) water_before();  // (the depth and the lit image before the water: water_apply)
+    bool capture_draw = g_debug_frame && focused_capture_on() &&
+        draw_capture_take(&focused_capture, true, renderer_exec_frame(), g_cur_fs_hash);
+    focused_capture_draw = capture_draw;
+    if (capture_draw) focused_draw_before(pr, r, indexed);
     begin_pass();
     scarlet_graphics_audit_draw(pr);  // after feedback resolution and pass setup, not skipped/replaced draws
     if (lighting) gtao_mark(st.rt.ncolor ? st.rt.color[0] : NULL);
@@ -6848,7 +6887,7 @@ static void draw_(CmdRec *r, bool indexed) {
     // the light's planes - and in passes without depth - the UI: its quads ask for it, and some lie outside the depth
     // range, the item-count window after using a candy stayed hidden; not in colour passes with depth: Vulkan's clamp
     // also turns off near clipping, and a big mesh with triangles behind the camera spread across the screen as huge
-    // dark sheets; but in colour passes onto a square depth target - Pokémon Z-A's sun shadow maps, 1024x1024 x 3
+    // dark sheets; but in colour passes onto a square depth target - PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's sun shadow maps, 1024x1024 x 3
     // cascades drawn with an 8-bit colour target beside: unclamped, the buildings past the nearest cascade's light planes
     // were clipped from it and their shadows cut off at a line that moved with the player, #43), primitive restart and
     // the depth / stencil state in the pipeline on Vulkan 1.2 drivers
@@ -7204,6 +7243,15 @@ static void draw_(CmdRec *r, bool indexed) {
         rec_CmdBindIndexBuffer(cb, ib.buf, ib.off, itype_vk);
     }
 
+    VkSpan capture_sources[18];
+    uint64_t capture_sizes[18];
+    if (capture_draw) { memset(capture_sources, 0, sizeof capture_sources); memset(capture_sizes, 0, sizeof capture_sizes); }
+    if (capture_draw && use_index) {
+        capture_sources[17] = ib;
+        capture_sizes[17] = (uint64_t)icount * (itype_vk == VK_INDEX_TYPE_UINT16 ? 2 : 4);
+        LOG("[draw-capture] mesh count %u base %d index-type %u topology %u indirect %d\n",
+            icount, base_vertex, (unsigned)itype_vk, mode, g_ind_gpu && ind_ok);
+    }
     // ---- vertex streams: the range this draw can read, copied once per submission
     for (int s = 0; s < 17; s++) {
         if (!(vl.used_streams & (1u << s))) continue;
@@ -7216,6 +7264,10 @@ static void draw_(CmdRec *r, bool indexed) {
             VkBuffer dbuf;
             VkDeviceSize doff;
             if (v.addr && v.size && guest_direct(0, v.addr, v.size, &dbuf, &doff)) {
+                if (capture_draw) {
+                    capture_sources[s] = (VkSpan){.buf = dbuf, .off = doff};
+                    capture_sizes[s] = v.size;
+                }
                 if (ss_on && (ss.vb_known >> s & 1) && ss.vb[s] == dbuf && ss.vo[s] == doff) continue;
                 ss.vb[s] = dbuf; ss.vo[s] = doff; ss.vb_known |= 1u << s;
                 rec_CmdBindVertexBuffers(cb, (uint32_t)s, 1, &dbuf, &doff);
@@ -7236,6 +7288,10 @@ static void draw_(CmdRec *r, bool indexed) {
             if (v.size && need > v.size) need = v.size;
             if (!v.addr) { static const uint8_t zero[256]; sp = vk_transient_copy(zero, 256, 16); }
             else sp = guest_copy(v.addr, need ? need : 16);
+            if (capture_draw && v.addr) {
+                capture_sources[s] = sp;
+                capture_sizes[s] = need ? need : 16;
+            }
         }
         VkDeviceSize off = sp.off;
         if (ss_on && (ss.vb_known >> s & 1) && ss.vb[s] == sp.buf && ss.vo[s] == off) continue;
@@ -7298,6 +7354,46 @@ static void draw_(CmdRec *r, bool indexed) {
     if (dl_on > 0) vk_checkpoint(cb, dl_n);
     stat_draws++;
     cum_draws++;
+    if (capture_draw) {
+        // Actual bound buffers, including XFB/device-local results. Never substitute
+        // a CPU guest-memory reread for the GPU input. Read back only small meshes.
+        VkSpan reads[18] = {0};
+        vk_end_pass();
+        VkCommandBuffer read_cb = vk_cmd();
+        vk_full_barrier(read_cb);
+        uint64_t offsets[18] = {0}, total = 0;
+        for (int i = 0; i < 18; i++) {
+            uint64_t n = capture_sizes[i];
+            if (!n || n > 65536 || !capture_sources[i].buf) continue;
+            offsets[i] = total;
+            total += (n + 3) & ~3ull;
+        }
+        // vk_readback is a single reusable scratch buffer, NOT an allocator.
+        // Reserve once and partition it; otherwise the last (index) copy overwrites
+        // every stream and every saved pointer observes the same prefix.
+        VkSpan batch = total ? vk_readback(total) : (VkSpan){0};
+        for (int i = 0; i < 18; i++) {
+            uint64_t n = capture_sizes[i];
+            if (!n || n > 65536 || !capture_sources[i].buf) continue;
+            reads[i] = (VkSpan){batch.buf, batch.off + offsets[i], (uint8_t *)batch.ptr + offsets[i]};
+            VkBufferCopy copy = {capture_sources[i].off, reads[i].off, n};
+            rec_CmdCopyBuffer(read_cb, capture_sources[i].buf, reads[i].buf, 1, &copy);
+        }
+        renderer_flush();
+        for (int i = 0; i < 18; i++) {
+            if (!reads[i].ptr) continue;
+            char path[160];
+            snprintf(path, sizeof path, "build/draw-capture/%llu_%02u_gpu_%s%d.bin",
+                (unsigned long long)focused_capture.frame, focused_capture.used,
+                i == 17 ? "index" : "stream", i == 17 ? 0 : i);
+            FILE *f = fopen(path, "wb");
+            if (f) { fwrite(reads[i].ptr, 1, (size_t)capture_sizes[i], f); fclose(f); }
+            LOG("[draw-capture] GPU slot %d bytes %llu offset %llu\n", i,
+                (unsigned long long)capture_sizes[i], (unsigned long long)capture_sources[i].off);
+        }
+        focused_draw_image("after");
+    }
+    focused_capture_draw = false;
     if (g_gpuprof_frame && gp_n) {
         if (!gp_draws[gp_n - 1]) {  // first draw of the row: its fragment shader hash
             size_t l = strlen(gp_label[gp_n - 1]);
@@ -7395,6 +7491,59 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
     }
 }
 
+// Capture the actual draw's translated variants even when loaded from the shader cache.
+// Images bracket one executed draw; the ordinary F9 pass dump is suppressed in this mode.
+// Readback serializes this ONE diagnostic frame, so its timing is not gameplay performance.
+static void focused_draw_image(const char *which) {
+    NvnTexture *t = NULL;
+    int slot = -1;
+    // Sparse MRT bindings are legal. Scarlet's facial G-buffer can leave c0 empty;
+    // prefer its sRGB albedo attachment, otherwise the first bound color target.
+    for (int i = 0; i < st.rt.ncolor; i++) {
+        if (!st.rt.color[i]) continue;
+        if (!t || st.rt.color[i]->format == 0x38) { t = st.rt.color[i]; slot = i; }
+        if (t->format == 0x38) break;
+    }
+    if (!t || !t->backend) return;
+    char path[160];
+    snprintf(path, sizeof path, "build/draw-capture/%llu_%02u_%016llx_c%d_%s.png",
+        (unsigned long long)focused_capture.frame, focused_capture.used,
+        (unsigned long long)g_cur_fs_hash, slot, which);
+    renderer_save_texture_tex(t->backend, path);
+    ss_forget();
+}
+
+static void focused_draw_before(Prog *pr, CmdRec *r, bool indexed) {
+    mkdir("build", 0755);
+    mkdir("build/draw-capture", 0755);
+    mkdir("build/draw-capture/textures", 0755);
+    LOG("[draw-capture] frame %llu draw %u hash %016llx\n",
+        (unsigned long long)focused_capture.frame, focused_capture.used, (unsigned long long)g_cur_fs_hash);
+    debug_draw(pr, r, indexed);
+    for (int sg = 0; sg < 2; sg++) {
+        ShaderInfo *si = sg ? pr->fi : pr->vi;
+        char path[160];
+        snprintf(path, sizeof path, "build/draw-capture/%llu_%02u.%s",
+            (unsigned long long)focused_capture.frame, focused_capture.used, sg ? "frag" : "vert");
+        FILE *f = si && si->msl ? fopen(path, "wb") : NULL;
+        if (f) { fputs(si->msl, f); fclose(f); }
+    }
+    // Only small candidate material inputs. Color/alpha preserved by the textures/ path.
+    // Large scene buffers, depth, layers and unrelated draws are not dumped.
+    for (int i = 0; i < pr->fi->ntex && i < 8; i++) {
+        NvnTexture *t = shader_texture_object(1, &pr->fi->tex[i]);
+        TexBackend *b = t ? t->backend : NULL;
+        if (!b || b->layers != 1 || b->width > 1024 || b->height > 1024 ||
+            (b->aspect & ~VK_IMAGE_ASPECT_COLOR_BIT)) continue;
+        char path[160];
+        snprintf(path, sizeof path, "build/draw-capture/textures/%llu_%02u_t%d.png",
+            (unsigned long long)focused_capture.frame, focused_capture.used, i);
+        renderer_save_texture_tex(b, path);
+        ss_forget();
+    }
+    focused_draw_image("before");
+}
+
 // An indexed draw with parameters in GPU memory whose indices run past its vertex buffer (Z-A: the index count is
 // another mesh's, so the draw reads on into the next allocation - matrices, material floats - and its triangles
 // stretch across the screen as sheets and beams). Checked on the parameters as the CPU sees them (the culling
@@ -7470,7 +7619,7 @@ static void draw_indirect(CmdRec *r) {
         gmem_info();  // (the import, made on first use)
         bool gpu = GM_IN(pa, 20) && !(pa & 3);
         if (gpu) {
-            // The GPU fills in parts of the parameters (the instance count: Pokémon Z-A's culling compute), so the
+            // The GPU fills in parts of the parameters (the instance count: PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's culling compute), so the
             // draw reads them there; the CPU side covers the index range from the buffer's start (the first index
             // applies on the GPU) with one instance
             static int gpu_args_log = -1;  // (debug) LARECOMP_LOG_GPU_ARGS=<n>: n parameter sets as the GPU sees them
@@ -7514,7 +7663,7 @@ static void draw_indirect(CmdRec *r) {
 }
 
 // ================================================================== texture copies
-typedef struct { uint64_t tex; NvnTextureView view; uint8_t has_view; int32_t region[6]; } TexRefRec;
+typedef NvnTexRefRec TexRefRec;
 
 static void copy_region_dims(NvnTexture *t, const TexRefRec *ref, const FormatInfo **fi, int32_t rg[6], int *level,
                              uint64_t *row, uint64_t *img) {
@@ -7531,7 +7680,7 @@ static void copy_region_dims(NvnTexture *t, const TexRefRec *ref, const FormatIn
 
 static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     snap_reason = "buf2tex"; snapshots_invalidate(NULL);
-    NvnTexture *t = (NvnTexture *)(uintptr_t)dst->tex;
+    NvnTexture *t = nvn_texture_resolve_command(dst->tex, dst->lifetime_id, "copy-destination");
     if (!t || !src) return;
     alias_before_write(t, 0, "upload");
     vk_end_pass();
@@ -7573,7 +7722,7 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
 }
 
 static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
-    NvnTexture *t = (NvnTexture *)(uintptr_t)src->tex;
+    NvnTexture *t = nvn_texture_resolve_command(src->tex, src->lifetime_id, "copy-source");
     if (!t || !dst || dst < GUEST_LO) return;
     t = alias_read(t);
     vk_end_pass();
@@ -7720,7 +7869,7 @@ static void depth_blit_via_color(VkCommandBuffer cb, TexBackend *s, TexBackend *
 
 static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
-    NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
+    NvnTexture *st_ = nvn_texture_resolve_command(src->tex, src->lifetime_id, "copy-source"), *dt = nvn_texture_resolve_command(dst->tex, dst->lifetime_id, "copy-destination");
     if (!st_ || !dt) return;
     vk_end_pass();
     if (dl_on == 2) renderer_flush();  // (LARECOMP_VK_DEVLOST_TRACE=2: each copy its own submission, waited on)
@@ -8109,7 +8258,7 @@ static VkImageView post_view(TexBackend *d) {
 }
 
 // ================================================================== temporal anti-aliasing: AMD FSR 2 (vk_fsr2.h)
-// Pokémon Z-A tone-maps its frame into an image of its own and copies that, edge anti-aliased, into the image it
+// PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A tone-maps its frame into an image of its own and copies that, edge anti-aliased, into the image it
 // shows; the HUD is drawn over it. With FSR 2 that copy is replaced: the scene was drawn jittered (fsr2_frame_jitter),
 // its camera motion vectors and reactive mask are made from the depth and stencil (fsr2_mv.frag, with the view-
 // projections of this frame and the last: mv_note_draw), FSR 2 resolves the picture with its history, and the result
@@ -8493,7 +8642,7 @@ static void post_pass_ex(VkCommandBuffer cb, const char *fs, const VkImageView *
 }
 
 // ================================================================== GTAO (ambient occlusion)
-// Pokémon Z-A draws no screen-space ambient occlusion. Its frame is deferred: the G-buffer, then one lighting pass
+// PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A draws no screen-space ambient occlusion. Its frame is deferred: the G-buffer, then one lighting pass
 // (fragment shader GTAO_LIGHTING) that reads the scene depth (its texture 1) and rebuilds each pixel's world position as
 // ndc.x * c12 + ndc.y * c13 + depth * c14 + c15 (rows of its constant buffer 2 - "cb5" in its GLSL -, divided by w; row
 // 19 is the camera's position, rows 20 / 21 hold the tangents of half the field of view). Just before the first
@@ -8545,7 +8694,7 @@ static NvnTexEntry *gtao_tex_entry(ShaderInfo *si, int i) {
     return e->tex ? e : NULL;
 }
 
-// The deferred lighting pass, in any of its variants (the game swaps in others while a Pokémon is sent out, while a
+// The deferred lighting pass, in any of its variants (the game swaps in others while a PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon is sent out, while a
 // move's effects play...): GTAO_LIGHTING, or a fragment shader with 10+ textures whose first two are one and the same
 // depth texture (the scene depth, read twice) and a camera in constant buffer 2. Decided once per shader.
 static bool gtao_is_lighting(Prog *pr) {
@@ -8690,7 +8839,7 @@ static void ssgi_apply(TexBackend *tb) {
 }
 
 // ================================================================== water reflections
-// Pokémon Z-A's water (fountains, ponds...) is a see-through surface drawn onto the lit image after the lighting -
+// PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A's water (fountains, ponds...) is a see-through surface drawn onto the lit image after the lighting -
 // blended, writing its depth, and reading the scene's depth (for its soft edges) - with no reflection of the world
 // around it. Before the frame's first such draw the depth and the lit image are copied (water_before); once the
 // game moves on to another target (begin_pass), wherever the depth changed is the water's surface, and
@@ -9178,17 +9327,16 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_SET_TEXTURE_POOL: st.tpool = (NvnDescPool *)(uintptr_t)r->x[0]; break;
         case CMD_SET_SAMPLER_POOL: st.spool = (NvnDescPool *)(uintptr_t)r->x[0]; break;
         case CMD_SET_RENDER_TARGETS: {
-            const struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
-                           NvnTextureView dview; uint8_t has_dview; } *rt = x;
+            const NvnRtRec *rt = x;
             RtState prev = st.rt;  // the same targets again: keep the pass (a restart = full barrier + reload)
             memset(&st.rt, 0, sizeof st.rt);
             st.rt.ncolor = (int)r->x[0] > 8 ? 8 : (int)r->x[0];
             for (int i = 0; i < st.rt.ncolor; i++) {
-                st.rt.color[i] = (NvnTexture *)(uintptr_t)rt->tex[i];
+                st.rt.color[i] = nvn_texture_resolve_command(rt->tex[i], rt->tex_id[i], "render-target");
                 st.rt.cview[i] = rt->views[i];
                 st.rt.has_cview[i] = rt->has_view[i];
             }
-            st.rt.depth = (NvnTexture *)(uintptr_t)rt->depth;
+            st.rt.depth = nvn_texture_resolve_command(rt->depth, rt->depth_id, "depth-target");
             st.rt.dview = rt->dview;
             st.rt.has_dview = rt->has_dview;
             static int always = -1;
@@ -9236,8 +9384,14 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_CLEAR_TEXTURE: {
             // ClearTexture(cmd, texture, view, region, color, mask): a render-target clear of the texture alone (renderer.m)
             const struct { uint64_t tex; NvnTextureView view; uint8_t has_view; int32_t region[6]; float color[4]; } *ct = x;
-            NvnTexture *t = (NvnTexture *)(uintptr_t)ct->tex;
-            if (!t) break;
+            NvnTexture *t = nvn_texture_resolve_recorded((NvnTexture *)(uintptr_t)ct->tex, r->x[5]);
+            if (!t) {
+                static unsigned stale_clear_logs;
+                if (stale_clear_logs++ < 8)
+                    LOG("[vk] ClearTexture: retired/reused texture reference ignored (id=%llu)\n",
+                        (unsigned long long)r->x[5]);
+                break;
+            }
             snap_reason = "clear-texture"; snapshots_invalidate(NULL);
             alias_before_write(t, 0, "clear");
             RtState saved = st.rt;
@@ -9364,7 +9518,7 @@ static void exec_list(uint64_t handle, int depth) {
             if (mode == 1 && vk_frame_counter() != frame_seen) { frame_seen = vk_frame_counter(); frame_ts = ns_to_gpu_ticks(plat_now_ns()); }
             if (!out) break;
             out[0] = 0;
-            // SAMPLES_PASSED (occlusion queries: Pokémon Z-A tests its objects with point draws and skips those that
+            // SAMPLES_PASSED (occlusion queries: PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A tests its objects with point draws and skips those that
             // pass no samples): no occlusion queries here, so a count that always grows - every object visible
             static uint64_t samples;
             if (type == 1) out[0] = samples += 1u << 20;
@@ -9466,7 +9620,7 @@ static void execute_one(uint64_t handle, bool submit) {
 
 void backend_execute(uint64_t handle) { execute_one(handle, true); }
 
-// The game hands its command lists over a frame at a time (Pokémon Z-A: ~100 in one nvnQueueSubmitCommands): they go
+// The game hands its command lists over a frame at a time (PokÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©mon Z-A: ~100 in one nvnQueueSubmitCommands): they go
 // to the GPU in a few submissions instead of one each. ~80 submissions a frame cost ~20 % of the render thread
 // (vkQueueSubmit, a new command buffer and its state, the vertex cache's write-tracking query, a ring slot each).
 // A submission still ends after a list with a fence in it (a waiter on another thread must not find it pending, as

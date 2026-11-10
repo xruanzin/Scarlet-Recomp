@@ -292,6 +292,7 @@ static void pick_device(void) {
 static bool g_fault_ext;
 static PFN_vkWaitForPresentKHR g_present_wait;  // (VK_KHR_present_wait: present_watch)
 static bool g_present_fifo;  // (present_watch gave up on the default present mode)
+static uint64_t g_present_generation;  // changed only with the recorder drained
 static _Atomic uint32_t g_img_changes;  // (probe_check: the game's presented image changed - screen_watch)
 static _Atomic bool g_screen_stale;     // (screen_watch -> vk_frame_end: the window stopped showing the frames)
 static _Atomic bool g_present_unseen;   // (vk_present_watch, on the recorder -> vk_frame_end: the same, and why)
@@ -843,6 +844,7 @@ static void create_swapchain(void) {
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, .presentMode = present_mode(), .clipped = VK_TRUE,
         .oldSwapchain = old};
     VK_CHECK(vkCreateSwapchainKHR(g_vk.dev, &ci, NULL, &g_vk.swapchain));
+    ++g_present_generation;  // present IDs/probe age belong to this swapchain
     static const char *const modes[] = {"immediate", "mailbox", "fifo", "fifo-relaxed"};
     LOG("[vk] swapchain %ux%u, %u images, %s%s\n", ext.width, ext.height, count,
         ci.presentMode < 4 ? modes[ci.presentMode] : "other present mode",
@@ -1189,7 +1191,13 @@ static int screen_watch(void *arg) {
         if (!test && !plat_window_screen_hash(hwnd, &scr)) { have = false, stale = 0; continue; }
         stale = have && scr == last_scr && img - last_img >= 5 ? stale + 1 : 0;  // (the game's image moving meanwhile)
         have = true, last_scr = scr, last_img = img;
-        if (stale >= 3) { atomic_store(&g_screen_stale, true); stale = 0; }
+        if (stale >= 3) {
+            static unsigned logs;
+            if (logs++ < 12)
+                LOG("[screen-watch] unchanged desktop hash=%08x while game image changed; window flags=%llx\n",
+                    scr, (unsigned long long)SDL_GetWindowFlags(window));
+            atomic_store(&g_screen_stale, true); stale = 0;
+        }
     }
     return 0;
 }
@@ -1203,14 +1211,20 @@ static int screen_watch(void *arg) {
 // goes to vk_frame_end (g_present_unseen), which makes the new swapchain.
 void vk_present_watch(uint64_t id) {
     static uint64_t probe, probe_ns;
+    static uint64_t generation;
     static int any = -1;
     if (!g_present_wait) return;
+    if (generation != g_present_generation) {
+        generation = g_present_generation;
+        probe = 0;  // never query the replacement chain for an old chain's ID
+    }
     if (any < 0) any = ENV("LARECOMP_PRESENT_WATCH_ANY") != NULL;
     uint64_t now = SDL_GetTicksNS();
     SDL_WindowFlags f = SDL_GetWindowFlags(window);
     if (!any && (f & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN))) { probe = 0; return; }
     // (a window in the background may rightly show nothing: only said in the log, at most 10 times)
     bool focused = any || ((f & SDL_WINDOW_INPUT_FOCUS) && !(f & SDL_WINDOW_OCCLUDED));
+    if (!focused) { probe = 0; return; }  // time in the background is not a visible stall
     if (!probe) { probe = id; probe_ns = now; return; }
     VkResult r = g_present_wait(g_vk.dev, g_vk.swapchain, probe, 0);
     if (r == VK_SUCCESS) { probe = 0; return; }
@@ -1221,13 +1235,6 @@ void vk_present_watch(uint64_t id) {
         return;
     }
     if (now - probe_ns < 3000000000ull) return;
-    if (!focused) {
-        static int n;
-        if (n++ < 10) LOG("[vk] the window showed nothing for 3 s without the focus (present %llu not shown) - left as is\n",
-                          (unsigned long long)probe);
-        probe = 0;
-        return;
-    }
     snprintf(g_present_unseen_why, sizeof g_present_unseen_why, "present %llu not shown, now %llu",
              (unsigned long long)probe, (unsigned long long)id);
     probe = 0;
@@ -1402,8 +1409,12 @@ void vk_frame_end(const char *shot_path) {
         SDL_Thread *t = ENV("LARECOMP_NO_SCREEN_WATCH") ? NULL : SDL_CreateThread(screen_watch, "screenwatch", NULL);
         if (t) SDL_DetachThread(t);
     }
-    if (atomic_exchange(&g_present_unseen, false)) present_recover(g_present_unseen_why);
-    if (atomic_exchange(&g_screen_stale, false)) present_recover("the screen kept an old image of the window");
+    bool unseen = atomic_exchange(&g_present_unseen, false);
+    bool stale_screen = atomic_exchange(&g_screen_stale, false);
+    // Both watchdogs can report the same stall. Recover once: two recoveries
+    // here used to destroy the fresh chain and force FIFO immediately.
+    if (unseen) present_recover(g_present_unseen_why);
+    else if (stale_screen) present_recover("the screen kept an old image of the window");
     cur_frame.ok = false;
     if (hdr_shot.ptr) {
         vk_wait_seq(seq);
