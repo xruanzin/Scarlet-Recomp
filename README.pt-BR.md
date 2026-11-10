@@ -34,6 +34,8 @@ A arquitetura parte de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-AReco
 
 **Problemas conhecidos:** olhos e sobrancelhas podem desaparecer em algumas cenas; a foto da ficha de matrícula pode ficar preta; outros defeitos gráficos e de estabilidade podem ocorrer. A flutuação na animação da cadeira e as piscadas em tela cheia deixaram de ocorrer em builds locais específicas, mas ainda precisam ser verificadas no pacote v1.0.0.
 
+**60 FPS dinâmicos nativos (experimental):** com o patch ASM original de Fl4sh validado e instalado localmente, selecionar **60 FPS** ativa automaticamente a variante AOT dinâmica, sem um modo extra no launcher. [Importação e limites do teste](docs/SCARLET-NATIVE-DYNAMIC-60FPS.md). O mod original não está incluído no repositório nem no ZIP público.
+
 ## Requisitos e instalação
 
 É necessário ter **Windows 11 x64**, driver/GPU compatível com Vulkan, **sua própria cópia legítima do jogo base e da atualização 4.0.0**, além das chaves da sua instalação quando exigidas pela importação.
