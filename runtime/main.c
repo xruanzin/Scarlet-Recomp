@@ -560,6 +560,29 @@ static int scarlet_prepare_aot(const char *game_dir) {
 }
 #endif
 
+#if defined(SCARLET_AOT) && defined(_WIN32)
+// Native 60 FPS uses the player's verified Fl4sh ASM patch when installed.
+// There is no additional launcher FPS mode or separate environment toggle:
+// the existing 60 FPS selection applies the same patch to AOT generation
+// and private guest memory. Never redistribute the author's patch in the ZIP.
+static void scarlet_auto_dfps_select(void) {
+    const char *fps = getenv("SCARLET_TARGET_FPS");
+    const int target = fps ? atoi(fps) :
+        (getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1") ? 60 : 30);
+    if (target != 60 || getenv("SCARLET_DFPS_PCHTXT")) return;
+    char patch[1100];
+    if (!rt_resource("user/mods/scarlet-dfps-v4.pchtxt", NULL, patch, sizeof patch)) {
+        LOG("[scarlet-fps] 60 FPS static fallback (native Dynamic FPS patch not installed)\n");
+        return;
+    }
+    if (_putenv_s("SCARLET_DFPS_PCHTXT", patch) != 0) {
+        FATAL("[scarlet-fps] cannot set native Dynamic FPS patch path\n");
+    }
+    LOG("[scarlet-fps] 60 FPS native Dynamic ASM selected automatically from user/mods; "
+        "AOT library checked for matching -dfpsasm ID\n");
+}
+#endif
+
 int main(int argc, char **argv) {
 #if defined(SCARLET_AOT) && defined(_WIN32)
     // The Win32 launcher has the original Scarlet PC GDI+ layout and
@@ -635,6 +658,10 @@ int main(int argc, char **argv) {
     }
 #endif
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+#if defined(SCARLET_AOT) && defined(_WIN32)
+    // Must run before --prepare-aot's gamelib_present() ID check and before boot().
+    scarlet_auto_dfps_select();
+#endif
 #ifdef SCARLET_AOT
     if (prepare_aot) return scarlet_prepare_aot(root);
 #endif
