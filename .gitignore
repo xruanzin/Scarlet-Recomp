@@ -26,3 +26,6 @@ __pycache__/
 /tools/hdtools/
 # Claude Code: machine-specific notes
 CLAUDE.local.md
+
+# Portable user preferences and save/runtime data are never committed
+/user/

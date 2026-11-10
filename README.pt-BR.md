@@ -34,6 +34,8 @@ A arquitetura parte de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-AReco
 
 **Problemas conhecidos:** olhos e sobrancelhas podem desaparecer em algumas cenas; a foto da ficha de matrícula pode ficar preta; outros defeitos gráficos e de estabilidade podem ocorrer. A flutuação na animação da cadeira e as piscadas em tela cheia deixaram de ocorrer em builds locais específicas, mas ainda precisam ser verificadas no pacote v1.0.0.
 
+**Temporização nativa adaptativa a 60 FPS (experimental):** selecionar **60 FPS** já utiliza o relógio adaptativo integrado ao runtime. Não precisa de mod, `.pchtxt`, nova opção no launcher nem refazer a DLL AOT por esse motivo. [Implementação e testes pendentes](docs/SCARLET-NATIVE-DYNAMIC-60FPS.md). A tremedeira do personagem ainda precisa de validação no jogo.
+
 ## Requisitos e instalação
 
 É necessário ter **Windows 11 x64**, driver/GPU compatível com Vulkan, **sua própria cópia legítima do jogo base e da atualização 4.0.0**, além das chaves da sua instalação quando exigidas pela importação.

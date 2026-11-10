@@ -388,6 +388,8 @@ static void scarlet_fps60_setup(void) {
     g_scarlet_native_fps60 = target >= 60;
     LOG("[scarlet-fps] requested %d FPS, period %u ns, NVN interval %d; 120/240 experimental\n",
         target,period,target <= 60 ? 1 : 0);
+    if (target == 60)
+        LOG("[scarlet-fps] native adaptive frame clock selected (experimental, no external patch)\n");
 #endif
 }
 

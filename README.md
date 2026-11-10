@@ -34,6 +34,8 @@ Based on the architecture of [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ
 
 **Known issues:** eyes and eyebrows may disappear in some cutscenes; the enrollment-form portrait may appear black; other graphical or stability issues remain possible. Some earlier character-animation and fullscreen flicker problems were resolved in specific local builds, but require verification in the packaged v1.0.0.
 
+**Built-in native 60 FPS timing (experimental):** the existing **60 FPS** selection now uses a host-side adaptive frame clock. No mod, `.pchtxt`, extra FPS option, or new game-code AOT build is required. [Design and test limits](docs/SCARLET-NATIVE-DYNAMIC-60FPS.md). It still needs gameplay testing for character/camera jitter.
+
 ## Requirements and setup
 
 You need **Windows 11 x64**, a Vulkan-capable GPU/driver, **your own legally obtained Pokémon Scarlet base game and update 4.0.0**, and your own keys if required for local import.

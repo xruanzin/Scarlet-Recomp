@@ -10,6 +10,9 @@
 #include "../rt.h"
 #include "pace.h"
 #include "slowframe.h"
+#if defined(SCARLET_AOT) && defined(_WIN32)
+#include "../scarlet_native_frame_clock.h"
+#endif
 
 // The game advances its world one fixed step per frame in its 60 fps mode, and two steps per frame in its 30 fps mode
 // (measured: Link walks twice as far per frame there) - so a 60-mode frame that takes 20 ms plays in slow motion, while
@@ -192,10 +195,41 @@ static uint64_t pace_scene(void) {
 
 #if defined(SCARLET_AOT) && defined(_WIN32)
 extern void scarlet_dfps_intro_mode_frame(void);
+extern int g_scarlet_target_fps;
+
+// Experimentally update Scarlet's already-validated frame-period field from
+// host present cadence. 60 FPS is the only supported native dynamic target.
+// Keep the ASMer's separate opt-in path untouched for A/B tests.
+static void scarlet_native_present_clock(void) {
+    static ScarletNativeFrameClock clock;
+    static bool active;
+    const char *other = getenv("SCARLET_DFPS_PCHTXT");
+    const bool ready = g_scarlet_target_fps == 60 &&
+        (!other || !*other) && g_program_id == UINT64_C(0x0100a3d008c5c000) &&
+        g_nmodules > 0 && g_modules[0].base == MAIN_BASE &&
+        g_modules[0].size >= UINT64_C(0x03c2fbb4);
+    if (!ready) {
+        if (active) scarlet_native_clock_reset(&clock);
+        active = false;
+        return;
+    }
+    if (!active) {
+        scarlet_native_clock_reset(&clock);
+        LOG("[scarlet-fps] native 60 FPS adaptive frame-period update enabled (A/B experimental)\n");
+        active = true;
+    }
+    const uint32_t period = scarlet_native_clock_step(&clock, plat_now_ns());
+    // x86-64 aligned 32-bit store; no guest instructions or third-party mod.
+    // The guest may already be reading this value on another thread: validate
+    // gameplay before enabling in public builds.
+    __atomic_store_n((uint32_t *)(uintptr_t)(MAIN_BASE + UINT64_C(0x03c2fbb0)),
+                     period, __ATOMIC_RELEASE);
+}
 #endif
 
 void pace_frame(void) {
 #if defined(SCARLET_AOT) && defined(_WIN32)
+    scarlet_native_present_clock();
     scarlet_dfps_intro_mode_frame();
 #endif
     spike_test();
