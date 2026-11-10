@@ -569,7 +569,8 @@ static void scarlet_auto_dfps_select(void) {
     const char *fps = getenv("SCARLET_TARGET_FPS");
     const int target = fps ? atoi(fps) :
         (getenv("SCARLET_FPS60") && !strcmp(getenv("SCARLET_FPS60"), "1") ? 60 : 30);
-    if (target != 60 || getenv("SCARLET_DFPS_PCHTXT")) return;
+    const char *manual = getenv("SCARLET_DFPS_PCHTXT");
+    if (target != 60 || (manual && *manual)) return;
     char patch[1100];
     if (!rt_resource("user/mods/scarlet-dfps-v4.pchtxt", NULL, patch, sizeof patch)) {
         LOG("[scarlet-fps] 60 FPS static fallback (native Dynamic FPS patch not installed)\n");
@@ -579,7 +580,7 @@ static void scarlet_auto_dfps_select(void) {
         FATAL("[scarlet-fps] cannot set native Dynamic FPS patch path\n");
     }
     LOG("[scarlet-fps] 60 FPS native Dynamic ASM selected automatically from user/mods; "
-        "AOT library checked for matching -dfpsasm ID\n");
+        "the matching -dfpsasm AOT library will be required\n");
 }
 #endif
 
