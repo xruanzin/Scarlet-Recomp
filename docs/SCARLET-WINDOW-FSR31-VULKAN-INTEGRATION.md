@@ -26,7 +26,7 @@ The SavageWindRecomp feature uses Vulkan GPU optical flow, motion reconstruction
 ### Scarlet renderer audit
 
 1. `Makefile` currently compiles `runtime/nvn/vulkan/*.c` and `*.cpp`, links the existing vendored FSR 2 backend from `third_party/fsr2`; no FidelityFX `ffx-api` or FSR 3 SDK libraries are linked.
-2. `runtime/nvn/vulkan/device.c:create_device` currently requests **only 1 queue** (`VkDeviceQueueCreateInfo.queueCount=1`). An official FSR 3.1 FI swapchain needs additional dedicated present/image acquire queues, chosen at device creation, proper queue-family transfer and distinct submission synchronization. The old `vkCreateSwapchainKHR`, `vkAcquireNextImageKHR`, `rec_QueuePresentKHR` paths still own presentation.
+2. `runtime/nvn/vulkan/device.c:create_device` **normally requests only 1 queue**. This branch adds a developer-only `SCARLET_FSR3_PREPARE=1` opt-in: if at least 3 queues are available in the graphics/present family, it creates separate `g_fsr3_present_queue` and `g_fsr3_acquire_queue` handles. It never submits on them yet. Actual FFX swapchain queue ownership, barriers, queue-family transfer and synchronization remain unimplemented. The old `vkCreateSwapchainKHR`, `vkAcquireNextImageKHR`, `rec_QueuePresentKHR` paths still own presentation.
 3. `create_swapchain` may use SDR 8-bit UNORM or HDR10/scRGB. FI needs to handle these formats and recreate its context on size, HDR and present-mode changes while respecting `rec_drain` / `vkDeviceWaitIdle` and g_vk image/view lifetimes.
 4. `backend_present_now` currently composites the game's **already HUD-inclusive** `NvnTexture` into the window, then draws ImGui F1 and HUD overlays on the same swapchain image. Delaying only ImGui cannot remove the game's HUD from the interpolation inputs. Identify the *pre-HUD game scene* separately, and provide that plus UI into the SDK's UI-composition callback or compose after generated frames.
 5. FSR 2 depth/motion input extraction in `exec.c` is conditioned on the Z-A frame hook. It does **not** establish Scarlet 4.0.0's scene depth, near/far, projection matrices, per-object motion or jitter handling. Motion reconstructed **only** from camera view/projection captures static geometry motion but cannot represent moving characters, foliage or particles; optical flow must supplement it, and disocclusion/reset cases need testing.
@@ -45,7 +45,7 @@ The SavageWindRecomp feature uses Vulkan GPU optical flow, motion reconstruction
 
 ### Explicit current state
 
-**Completed**: independent 1080p window default + F1 physical window size settings, runtime capability logging for later FSR work.
+**Completed**: independent 1080p window default + F1 physical window size settings, runtime capability logging and developer-opt-in reservation of 2 additional Vulkan queues for later FSR work.
 **Not completed**: FSR 3.1 SDK dependencies, game-side motion input, FI swapchain replacement, upscaler, frame generation and F1 FSR on/off controls.
 
 This branch preserves the original swapchain and FPS timing, so there is no claim that it provides generated frames.
