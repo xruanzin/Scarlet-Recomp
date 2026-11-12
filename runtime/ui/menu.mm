@@ -278,7 +278,9 @@ bool menu_handle_event(const SDL_Event *e) {
 }
 
 extern "C" uint32_t g_window_resize_request;  // (test scripts: runtime/hle/input.c "resize")
-extern "C" void ui_window_apply_window_size(int pixel_w, int pixel_h);  // device.c: SDL main thread
+#ifndef __APPLE__
+extern "C" void ui_window_apply_window_size(int pixel_w, int pixel_h);  // Vulkan device.c: SDL main thread
+#endif
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
     g_pixel_density = SDL_GetWindowPixelDensity(w);
@@ -297,8 +299,12 @@ void menu_apply_window_requests(void *win) {
         SDL_SetWindowFullscreen(w, g_settings.fullscreen);
     }
     bool request_size = g_want_window_size_apply.exchange(false);
+#ifndef __APPLE__
     if ((request_size || (toggle_fullscreen && !g_settings.fullscreen)) && !g_settings.fullscreen)
         ui_window_apply_window_size(g_settings.window_w, g_settings.window_h);
+#else
+    (void)request_size;  // Cocoa/Metal has its own window setup; Vulkan's helper is not linked there.
+#endif
     if (uint32_t r = __atomic_exchange_n(&g_window_resize_request, 0u, __ATOMIC_RELAXED))
         SDL_SetWindowSize(w, (int)(r >> 16), (int)(r & 0xffff));
 }
@@ -453,6 +459,7 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         g_want_fullscreen_apply.store(true);
     }
+#ifndef __APPLE__
     {   // Physical window dimensions: independent of the guest's internal 3D resolution.
         // Applied on SDL's main thread; in a smaller desktop they fit to the usable bounds.
         static const int dims[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
@@ -471,6 +478,7 @@ static void tab_display(void) {
             g_want_window_size_apply.store(true);
         }
     }
+#endif
     opt_toggle(TR("Show FPS", "Mostrar FPS"), &g_settings.show_fps, false,
                TR("Shows the frame rate in the top right corner.", "Mostra a taxa de quadros no canto superior direito."));
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
