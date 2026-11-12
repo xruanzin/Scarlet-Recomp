@@ -462,6 +462,8 @@ void output_scale(double dw, double dh, bool reshape_allowed, double now, double
     p_mode = mode, p_ups = g_settings.upscaler, p_aa = g_settings.antialias;
     if (forced > 0) h = forced;
     else if (mode >= 1 && mode <= 8) h = mode == 1 && g_gpu_integrated ? 720 / 1080.0 : mode;
+    else if (mode == RES_720P) h = 720.0 / 1080.0;  // exact internal 1280x720 on a docked/Scarlet guest
+    else if (mode == RES_1440P) h = 1440.0 / 1080.0;  // exact internal 2560x1440
     else if (mode == RES_X15) h = 1.5;  // (between 1x and 2x: most of 2x's smoothing for about half its cost)
     else {
         h = reshape ? dh / 1080.0 : fit;  // Match display
