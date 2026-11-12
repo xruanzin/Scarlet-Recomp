@@ -42,6 +42,11 @@ class WindowSizeSourceChecks(unittest.TestCase):
         self.assertIn("g_want_window_size_apply.exchange(false)", menu)
         self.assertIn("ui_window_apply_window_size(g_settings.window_w, g_settings.window_h);", menu)
 
+    def test_macos_does_not_link_vulkan_window_helper(self):
+        menu = source("runtime/ui/menu.mm")
+        self.assertIn('#ifndef __APPLE__\\nextern "C" void ui_window_apply_window_size', menu)
+        self.assertIn('#else\\n    (void)request_size;', menu)
+
     def test_no_fsr3_present_hook_was_claimed(self):
         device = source("runtime/nvn/vulkan/device.c")
         self.assertIn("rec_QueuePresentKHR(done_sem[img], g_vk.swapchain, img", device)
