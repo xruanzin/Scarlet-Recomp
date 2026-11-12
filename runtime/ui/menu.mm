@@ -57,6 +57,7 @@ bool rando_tab_took_back(void);  // rando_tab.mm: B went back from the Triforce 
 static std::atomic<bool> g_open{false};
 static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen keyboard has the keys (render thread: ui_text_busy)
 static std::atomic<bool> g_want_fullscreen_apply{false};
+static std::atomic<bool> g_want_window_size_apply{false};
 
 struct QEvent {
     enum { KEY, ANALOG, MOUSE_POS, MOUSE_BUTTON, WHEEL, TEXT } kind;
@@ -277,6 +278,7 @@ bool menu_handle_event(const SDL_Event *e) {
 }
 
 extern "C" uint32_t g_window_resize_request;  // (test scripts: runtime/hle/input.c "resize")
+extern "C" void ui_window_apply_window_size(int pixel_w, int pixel_h);  // device.c: SDL main thread
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
     g_pixel_density = SDL_GetWindowPixelDensity(w);
@@ -288,10 +290,15 @@ void menu_apply_window_requests(void *win) {
         text_input = want_text;
     }
     static bool first = true;
-    if (first || g_want_fullscreen_apply.exchange(false)) {
+    bool first_call = first;
+    bool toggle_fullscreen = g_want_fullscreen_apply.exchange(false);
+    if (first_call || toggle_fullscreen) {
         first = false;
         SDL_SetWindowFullscreen(w, g_settings.fullscreen);
     }
+    bool request_size = g_want_window_size_apply.exchange(false);
+    if ((request_size || (toggle_fullscreen && !g_settings.fullscreen)) && !g_settings.fullscreen)
+        ui_window_apply_window_size(g_settings.window_w, g_settings.window_h);
     if (uint32_t r = __atomic_exchange_n(&g_window_resize_request, 0u, __ATOMIC_RELAXED))
         SDL_SetWindowSize(w, (int)(r >> 16), (int)(r & 0xffff));
 }
@@ -445,6 +452,24 @@ static void tab_display(void) {
                    TR("Fills the screen. Also: F11, Alt+Enter or Cmd+Ctrl+F.", "Ocupa a tela toda. Também: F11, Alt+Enter ou Cmd+Ctrl+F."))) {
         g_settings.fullscreen = fs;
         g_want_fullscreen_apply.store(true);
+    }
+    {   // Physical window dimensions: independent of the guest's internal 3D resolution.
+        // Applied on SDL's main thread; in a smaller desktop they fit to the usable bounds.
+        static const int dims[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
+        const char *names[] = {"1280 x 720 (720p)", "1600 x 900 (900p)", "1920 x 1080 (1080p)",
+                               "2560 x 1440 (1440p)", "3840 x 2160 (4K)"};
+        int wi = 2;
+        for (int k = 0; k < 5; ++k)
+            if (dims[k][0] == g_settings.window_w && dims[k][1] == g_settings.window_h) wi = k;
+        if (opt_choice(TR("Window size", "Tamanho da janela"), &wi, names, 5, 2,
+                       TR("Physical size of the game window. Independent of 3D resolution. Large sizes are "
+                          "scaled to fit the available desktop and its title bar; fullscreen uses the display.",
+                          "Tamanho fisico da janela, independente da resolucao 3D. Tamanhos maiores "
+                          "sao ajustados a area util da tela. Tela cheia usa a resolucao do monitor."))) {
+            g_settings.window_w = dims[wi][0];
+            g_settings.window_h = dims[wi][1];
+            g_want_window_size_apply.store(true);
+        }
     }
     opt_toggle(TR("Show FPS", "Mostrar FPS"), &g_settings.show_fps, false,
                TR("Shows the frame rate in the top right corner.", "Mostra a taxa de quadros no canto superior direito."));
