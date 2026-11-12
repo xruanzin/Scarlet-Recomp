@@ -33,6 +33,7 @@ extern "C" {
 #include "../hle.h"
 #include "../settings.h"
 extern int g_game_is_la;  // runtime/kernel.c: Link's Awakening (its own tabs: randomizer, warp, cheats...)
+extern uint64_t g_program_id;  // Scarlet-specific graphics options
 #include "menu.h"
 void input_reset(void);
 void save_editor_draw(float scale);  // save_editor.mm
@@ -572,10 +573,10 @@ static void tab_display(void) {
     // display order -> RES_* (the ini / enum order predates the menu order)
     // (up to 4x: 7680 x 4320, 8K - more only ran out of GPU memory, and sat next to 75% in the list)
     // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
-    const char *res[] = {"25%", "50%", "75%", TR("Match display", "Igual à tela"), TR("Dynamic", "Dinâmica"), "1x",
-                         TR("1.5x (experimental)", "1.5x (experimental)"), "2x", "3x", "4x"};
-    static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, 1, RES_X15, 2, 3, 4};
-    enum { RES_MATCH_AT = 3 };
+    const char *res[] = {"720p (3D)", "25%", "50%", "75%", TR("Match display", "Igual à tela"), TR("Dynamic", "Dinâmica"), "1x",
+                         TR("1.5x (experimental)", "1.5x (experimental)"), "1440p (3D)", "2x (4K)", "3x", "4x"};
+    static const int res_mode[] = {RES_720P, RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, 1, RES_X15, RES_1440P, 2, 3, 4};
+    enum { RES_MATCH_AT = 4 };
     enum { NRES = sizeof res_mode / sizeof res_mode[0] };
     {
         int ri = RES_MATCH_AT, rdef = RES_MATCH_AT;  // (rdef: the GPU's default - Dynamic on an integrated GPU)
@@ -601,7 +602,7 @@ static void tab_display(void) {
         if (g_settings.res_mode == RES_DYNAMIC)
             snprintf(d + n, sizeof d - n, TR(" Dynamic: %.0f%% of the display right now.", " Dinâmica: %.0f%% da tela agora."),
                      output_scale_dynamic_factor() * 100);
-        if (opt_choice(TR("Internal resolution", "Resolução interna"), &ri, res, NRES, rdef, d, false))
+        if (opt_choice(TR("3D render resolution", "Resolução 3D"), &ri, res, NRES, rdef, d, false))
             g_settings.res_mode = res_mode[ri], g_settings.res_auto = false;
     }
     {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
@@ -636,17 +637,30 @@ static void tab_display(void) {
                   "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.",
                   "Suaviza as bordas serrilhadas da imagem antes de ela ser ampliada para a janela. SMAA: acha as bordas "
                   "e mistura só ao longo delas, então as texturas continuam nítidas. Ajuda mais numa resolução interna menor."));
-    {   // shadow map size (vulkan/textures.c tex_shadow_scale: taken at start) and filter width (vulkan/exec.c texture_info)
+    {   // Scarlet 4.0.0: clamp the known 2048px sun shadow maps to 4096px.
+        // Other games keep the original x1-x4 settings.
+        const bool scarlet = g_program_id == 0x0100a3d008c5c000ull;
         const char *sz[] = {TR("Game's", "Do jogo"), "2x", "3x", "4x"};
-        int si = g_settings.shadow_res - 1;
-        if (opt_choice(TR("Shadow resolution", "Resolução das sombras"), &si, sz, 4, 0,
-                       TR("The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: smoother "
-                          "shadow edges, without the stair steps, at a little GPU time and more GPU memory (4x: about 240 MB, "
-                          "2x: 60 MB). From the next start.",
-                          "O tamanho do mapa de onde saem as sombras do sol (o do jogo: 1024 x 1024). Maior: bordas das "
-                          "sombras mais lisas, sem os degraus, por um pouco de tempo da GPU e mais memória da GPU (4x: uns "
-                          "240 MB, 2x: 60 MB). A partir do próximo início.")))
-            g_settings.shadow_res = si + 1;
+        if (scarlet) {
+            int si = g_settings.shadow_res > 1 ? 1 : 0;
+            const char *sizes[] = {TR("Game's (2048)", "Do jogo (2048)"), "4096"};
+            if (opt_choice(TR("Sun shadow map", "Mapa de sombras do sol"), &si, sizes, 2, 0,
+                           TR("Experimental 4096px Vulkan scaling of Scarlet's 2048px sun shadow arrays. "
+                              "Applies at the next start; more VRAM required.",
+                              "Escala experimental no Vulkan dos mapas de sombra de 2048px do Scarlet para 4096px. "
+                              "Aplica no proximo inicio e usa mais VRAM.")))
+                g_settings.shadow_res = si ? 2 : 1;
+        } else {
+            int si = g_settings.shadow_res - 1;
+            if (opt_choice(TR("Shadow resolution", "Resolução das sombras"), &si, sz, 4, 0,
+                           TR("The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: smoother "
+                              "shadow edges, without the stair steps, at a little GPU time and more GPU memory (4x: about 240 MB, "
+                              "2x: 60 MB). From the next start.",
+                              "O tamanho do mapa de onde saem as sombras do sol (o do jogo: 1024 x 1024). Maior: bordas das "
+                              "sombras mais lisas, sem os degraus, por um pouco de tempo da GPU e mais memória da GPU (4x: uns "
+                              "240 MB, 2x: 60 MB). A partir do próximo início.")))
+                g_settings.shadow_res = si + 1;
+        }
         int sh = g_settings.shadow_sharp - 1;
         const char *shd = TR("How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower - "
                              "sharper shadows. At most the shadow resolution (its blur is measured in the map's texels). "
