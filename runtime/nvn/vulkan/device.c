@@ -1964,6 +1964,30 @@ void ui_window_apply_window_size(int pixel_w, int pixel_h) {
         w * density + 1.0 < pixel_w || h * density + 1.0 < pixel_h ? " (fitted to usable display)" : "");
 }
 
+// FSR 3.1 device preflight only. This does not enable interpolation or alter
+// the existing swapchain. The official Vulkan FI swapchain also needs reserved
+// present/acquire queues and valid game-side motion/depth/HUD inputs.
+static void fsr3_device_preflight(void) {
+#ifdef SCARLET_AOT
+    VkFormatProperties fmt = {0};
+    vkGetPhysicalDeviceFormatProperties(g_vk.phys, VK_FORMAT_R16G16B16A16_UNORM, &fmt);
+    const bool storage = (fmt.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
+    uint32_t count = 0, available = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &count, NULL);
+    if (count && g_vk.qfam < count) {
+        VkQueueFamilyProperties *families = calloc(count, sizeof *families);
+        if (families) {
+            vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &count, families);
+            if (g_vk.qfam < count) available = families[g_vk.qfam].queueCount;
+            free(families);
+        }
+    }
+    LOG("[fsr3] preflight: R16G16B16A16_UNORM storage=%s, graphics queue family %u has %u queue(s), "
+        "current renderer requests 1; FidelityFX swapchain and FSR3 dispatch are not installed\n",
+        storage ? "yes" : "no", g_vk.qfam, available);
+#endif
+}
+
 void ui_window_init(void) {
     if (window) return;
     atexit(quick_exit_handler);
@@ -1998,6 +2022,7 @@ void ui_window_init(void) {
     create_instance();
     if (!SDL_Vulkan_CreateSurface(window, g_vk.inst, NULL, &g_vk.surface)) FATAL("SDL_Vulkan_CreateSurface: %s\n", SDL_GetError());
     pick_device();
+    fsr3_device_preflight();
     create_device();
     create_swapchain();
     vk_exec_init();
