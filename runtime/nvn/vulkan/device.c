@@ -23,6 +23,11 @@
 #include <pthread.h>
 
 VkG g_vk;
+// Optional, separate present/acquire queues for a future ffx-api swapchain.
+// There is no Frame Generation dispatch or replacement swapchain enabled yet.
+VkQueue g_fsr3_present_queue = VK_NULL_HANDLE;
+VkQueue g_fsr3_acquire_queue = VK_NULL_HANDLE;
+bool g_fsr3_queues_reserved;
 #define VK_DEFINE_COMMAND(f) PFN_##f vkp_##f;
 #define VK_DEFINE_COMMAND_13(f, ext) PFN_##f vkp_##f;
 VK_DEVICE_COMMANDS_12(VK_DEFINE_COMMAND)
@@ -662,13 +667,42 @@ static void create_device(void) {
     b->shaderClipDistance = h->shaderClipDistance;
     b->geometryShader = h->geometryShader;  // (fragment shaders reading gl_Layer: the Geometry capability)
     if (!h->shaderInt64) LOG("[vk] warning: no shaderInt64 (64-bit address math in shaders)\n");
-    float prio = 1.0f;
+    float prios[] = {1.0f, 1.0f, 1.0f};
+    uint32_t queue_count = 1;
+#ifdef SCARLET_AOT
+    // Test-only opt-in. With no official FI swapchain, the existing renderer
+    // continues to request one queue and use it exactly as before.
+    const char *prepare = ENV("SCARLET_FSR3_PREPARE");
+    if (prepare && atoi(prepare)) {
+        uint32_t families_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &families_count, NULL);
+        if (families_count && g_vk.qfam < families_count) {
+            VkQueueFamilyProperties *families = calloc(families_count, sizeof *families);
+            if (families) {
+                vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &families_count, families);
+                if (g_vk.qfam < families_count && families[g_vk.qfam].queueCount >= 3)
+                    queue_count = 3;
+                free(families);
+            }
+        }
+        if (queue_count == 1)
+            LOG("[fsr3] queue reservation unavailable: keeping the game's 1 Vulkan queue\n");
+    }
+#endif
     VkDeviceQueueCreateInfo qi = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = g_vk.qfam,
-                                  .queueCount = 1, .pQueuePriorities = &prio};
+                                  .queueCount = queue_count, .pQueuePriorities = prios};
     VkDeviceCreateInfo di = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &f, .queueCreateInfoCount = 1,
                              .pQueueCreateInfos = &qi, .enabledExtensionCount = n_ext, .ppEnabledExtensionNames = ext};
     VK_CHECK(vkCreateDevice(g_vk.phys, &di, NULL, &g_vk.dev));
     vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 0, &g_vk.queue);
+    if (queue_count == 3) {
+        vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 1, &g_fsr3_present_queue);
+        vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 2, &g_fsr3_acquire_queue);
+        g_fsr3_queues_reserved = g_fsr3_present_queue != VK_NULL_HANDLE &&
+                                 g_fsr3_acquire_queue != VK_NULL_HANDLE;
+        LOG("[fsr3] present/acquire queues reserved: %s (the FI swapchain is not yet installed)\n",
+            g_fsr3_queues_reserved ? "yes" : "no");
+    }
 #define VK_LOAD_COMMAND(f)                                                                                            \
     if (!(vkp_##f = (PFN_##f)vkGetDeviceProcAddr(g_vk.dev, #f)))                                                     \
         FATAL("the GPU driver has no %s: update it (Vulkan 1.2 is needed)\n", #f);
