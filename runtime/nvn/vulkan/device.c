@@ -1955,6 +1955,10 @@ void ui_window_apply_window_size(int pixel_w, int pixel_h) {
     else if (d) {
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(d), SDL_WINDOWPOS_CENTERED_DISPLAY(d));
     }
+    SDL_SyncWindow(window);  // let the window manager apply the requested size before measuring pixels
+    int actual_w = 0, actual_h = 0;
+    SDL_GetWindowSizeInPixels(window, &actual_w, &actual_h);
+    LOG("[window] actual drawable: %dx%d physical pixels\n", actual_w, actual_h);
     LOG("[window] requested %dx%d physical pixels; applied %dx%d window units (density %.2f)%s\n",
         pixel_w, pixel_h, logical_w, logical_h, density,
         w * density + 1.0 < pixel_w || h * density + 1.0 < pixel_h ? " (fitted to usable display)" : "");
