@@ -133,6 +133,8 @@ bool g_gpu_integrated;
 static const char *res_name(int m) {
     static char n[8];
     if (m >= 1 && m <= 8) { snprintf(n, sizeof n, "%dx", m); return n; }
+    if (m == RES_720P) return "720p";
+    if (m == RES_1440P) return "1440p";
     return m == RES_X15 ? "1.5x" : m == RES_DYNAMIC ? "dynamic" : m == RES_Q75 ? "75%" : m == RES_Q50 ? "50%" : m == RES_Q25 ? "25%" : "match";
 }
 
@@ -210,7 +212,8 @@ void settings_load(void) {
             int n = atoi(val);
             g_settings.res_auto = !strcmp(val, "auto");
             if (g_settings.res_auto) { g_settings.res_mode = g_default_res_mode; continue; }
-            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 :
+            g_settings.res_mode = !strcmp(val, "720p") ? RES_720P : !strcmp(val, "1440p") ? RES_1440P :
+                                   !strcmp(val, "1.5x") ? RES_X15 :
                                   !strcmp(val, "dynamic") ? RES_DYNAMIC : (!strcmp(val, "75%") || !strcmp(val, "67%")) ? RES_Q75 :
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
