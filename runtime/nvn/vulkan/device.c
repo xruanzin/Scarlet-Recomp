@@ -23,6 +23,11 @@
 #include <pthread.h>
 
 VkG g_vk;
+// Optional, separate present/acquire queues for a future ffx-api swapchain.
+// There is no Frame Generation dispatch or replacement swapchain enabled yet.
+VkQueue g_fsr3_present_queue = VK_NULL_HANDLE;
+VkQueue g_fsr3_acquire_queue = VK_NULL_HANDLE;
+bool g_fsr3_queues_reserved;
 #define VK_DEFINE_COMMAND(f) PFN_##f vkp_##f;
 #define VK_DEFINE_COMMAND_13(f, ext) PFN_##f vkp_##f;
 VK_DEVICE_COMMANDS_12(VK_DEFINE_COMMAND)
@@ -662,13 +667,42 @@ static void create_device(void) {
     b->shaderClipDistance = h->shaderClipDistance;
     b->geometryShader = h->geometryShader;  // (fragment shaders reading gl_Layer: the Geometry capability)
     if (!h->shaderInt64) LOG("[vk] warning: no shaderInt64 (64-bit address math in shaders)\n");
-    float prio = 1.0f;
+    float prios[] = {1.0f, 1.0f, 1.0f};
+    uint32_t queue_count = 1;
+#ifdef SCARLET_AOT
+    // Test-only opt-in. With no official FI swapchain, the existing renderer
+    // continues to request one queue and use it exactly as before.
+    const char *prepare = ENV("SCARLET_FSR3_PREPARE");
+    if (prepare && atoi(prepare)) {
+        uint32_t families_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &families_count, NULL);
+        if (families_count && g_vk.qfam < families_count) {
+            VkQueueFamilyProperties *families = calloc(families_count, sizeof *families);
+            if (families) {
+                vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &families_count, families);
+                if (g_vk.qfam < families_count && families[g_vk.qfam].queueCount >= 3)
+                    queue_count = 3;
+                free(families);
+            }
+        }
+        if (queue_count == 1)
+            LOG("[fsr3] queue reservation unavailable: keeping the game's 1 Vulkan queue\n");
+    }
+#endif
     VkDeviceQueueCreateInfo qi = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = g_vk.qfam,
-                                  .queueCount = 1, .pQueuePriorities = &prio};
+                                  .queueCount = queue_count, .pQueuePriorities = prios};
     VkDeviceCreateInfo di = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &f, .queueCreateInfoCount = 1,
                              .pQueueCreateInfos = &qi, .enabledExtensionCount = n_ext, .ppEnabledExtensionNames = ext};
     VK_CHECK(vkCreateDevice(g_vk.phys, &di, NULL, &g_vk.dev));
     vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 0, &g_vk.queue);
+    if (queue_count == 3) {
+        vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 1, &g_fsr3_present_queue);
+        vkGetDeviceQueue(g_vk.dev, g_vk.qfam, 2, &g_fsr3_acquire_queue);
+        g_fsr3_queues_reserved = g_fsr3_present_queue != VK_NULL_HANDLE &&
+                                 g_fsr3_acquire_queue != VK_NULL_HANDLE;
+        LOG("[fsr3] present/acquire queues reserved: %s (the FI swapchain is not yet installed)\n",
+            g_fsr3_queues_reserved ? "yes" : "no");
+    }
 #define VK_LOAD_COMMAND(f)                                                                                            \
     if (!(vkp_##f = (PFN_##f)vkGetDeviceProcAddr(g_vk.dev, #f)))                                                     \
         FATAL("the GPU driver has no %s: update it (Vulkan 1.2 is needed)\n", #f);
@@ -1926,6 +1960,68 @@ static void quick_exit_handler(void) {
 #endif
 }
 
+// Choose a physical window size independently of the guest's 3D render resolution.
+// SDL_SetWindowSize takes window coordinates, which can differ from physical
+// pixels when Windows display scaling or high-density mode is in use.
+// Called only on the SDL main thread, not from the Vulkan present thread.
+void ui_window_apply_window_size(int pixel_w, int pixel_h) {
+    if (!window || (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) ||
+        ENV("LARECOMP_WINDOW") || ENV("LARECOMP_HIDDEN")) return;
+    if (pixel_w < 640 || pixel_h < 360 || pixel_w > 7680 || pixel_h > 4320) return;
+    float density = SDL_GetWindowPixelDensity(window);
+    if (!(density > 0.0f)) density = 1.0f;
+    double w = (double)pixel_w / density, h = (double)pixel_h / density;
+    SDL_DisplayID d = SDL_GetDisplayForWindow(window);
+    SDL_Rect work = {0};
+    if (d && SDL_GetDisplayUsableBounds(d, &work) && work.w > 100 && work.h > 100) {
+        int top = 0, bottom = 0;
+        SDL_GetWindowBordersSize(window, &top, NULL, &bottom, NULL);
+        // Leave space for the title bar and taskbar, keeping the chosen aspect.
+        double max_w = (double)work.w - 8.0;
+        double max_h = (double)work.h - (top > 0 ? top : 32) - (bottom > 0 ? bottom : 0) - 8.0;
+        double fit = fmin(1.0, fmin(max_w / w, max_h / h));
+        if (fit > 0.0 && fit < 1.0) w *= fit, h *= fit;
+    }
+    const int logical_w = (int)lround(w), logical_h = (int)lround(h);
+    if (logical_w < 320 || logical_h < 180) return;
+    if (!SDL_SetWindowSize(window, logical_w, logical_h))
+        LOG("[window] resizing to %dx%d failed: %s\n", logical_w, logical_h, SDL_GetError());
+    else if (d) {
+        SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(d), SDL_WINDOWPOS_CENTERED_DISPLAY(d));
+    }
+    SDL_SyncWindow(window);  // let the window manager apply the requested size before measuring pixels
+    int actual_w = 0, actual_h = 0;
+    SDL_GetWindowSizeInPixels(window, &actual_w, &actual_h);
+    LOG("[window] actual drawable: %dx%d physical pixels\n", actual_w, actual_h);
+    LOG("[window] requested %dx%d physical pixels; applied %dx%d window units (density %.2f)%s\n",
+        pixel_w, pixel_h, logical_w, logical_h, density,
+        w * density + 1.0 < pixel_w || h * density + 1.0 < pixel_h ? " (fitted to usable display)" : "");
+}
+
+// FSR 3.1 device preflight only. This does not enable interpolation or alter
+// the existing swapchain. The official Vulkan FI swapchain also needs reserved
+// present/acquire queues and valid game-side motion/depth/HUD inputs.
+static void fsr3_device_preflight(void) {
+#ifdef SCARLET_AOT
+    VkFormatProperties fmt = {0};
+    vkGetPhysicalDeviceFormatProperties(g_vk.phys, VK_FORMAT_R16G16B16A16_UNORM, &fmt);
+    const bool storage = (fmt.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
+    uint32_t count = 0, available = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &count, NULL);
+    if (count && g_vk.qfam < count) {
+        VkQueueFamilyProperties *families = calloc(count, sizeof *families);
+        if (families) {
+            vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &count, families);
+            if (g_vk.qfam < count) available = families[g_vk.qfam].queueCount;
+            free(families);
+        }
+    }
+    LOG("[fsr3] preflight: R16G16B16A16_UNORM storage=%s, graphics queue family %u has %u queue(s), "
+        "current renderer requests 1; FidelityFX swapchain and FSR3 dispatch are not installed\n",
+        storage ? "yes" : "no", g_vk.qfam, available);
+#endif
+}
+
 void ui_window_init(void) {
     if (window) return;
     atexit(quick_exit_handler);
@@ -1933,8 +2029,9 @@ void ui_window_init(void) {
     input_apply_background();  // controllers in the background: "Allow background inputs" (Controls tab)
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) FATAL("SDL_Init: %s\n", SDL_GetError());
     input_load_user_mappings();
-    int win_w = 1280, win_h = 720;
+    int win_w = g_settings.window_w, win_h = g_settings.window_h;
     if (ENV("LARECOMP_WINDOW")) sscanf(ENV("LARECOMP_WINDOW"), "%dx%d", &win_w, &win_h);
+    if (win_w < 640 || win_h < 360) win_w = 1280, win_h = 720;
     SDL_WindowFlags wflags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (ENV("LARECOMP_HIDDEN")) wflags |= SDL_WINDOW_HIDDEN;
     {   // scripted test runs (user input ignored: runtime/hle/input.c input_user_blocked) open without taking the
@@ -1951,11 +2048,15 @@ void ui_window_init(void) {
 #endif
     if (!window) FATAL("SDL_CreateWindow: %s\n", SDL_GetError());
     rt_window_icon(window);
+    // Respect the desired physical resolution at startup; a small desktop is
+    // fitted rather than leaving the title bar and menus off-screen.
+    if (!g_settings.fullscreen) ui_window_apply_window_size(g_settings.window_w, g_settings.window_h);
     // the Fullscreen setting applies from the start screen on (not only once the game runs); test windows stay windows
     if (g_settings.fullscreen && !ENV("LARECOMP_WINDOW") && !ENV("LARECOMP_HIDDEN")) SDL_SetWindowFullscreen(window, true);
     create_instance();
     if (!SDL_Vulkan_CreateSurface(window, g_vk.inst, NULL, &g_vk.surface)) FATAL("SDL_Vulkan_CreateSurface: %s\n", SDL_GetError());
     pick_device();
+    fsr3_device_preflight();
     create_device();
     create_swapchain();
     vk_exec_init();
