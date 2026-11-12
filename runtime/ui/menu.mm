@@ -669,8 +669,15 @@ static void tab_display(void) {
                              "mais estreito - sombras mais nítidas. No máximo a resolução das sombras (o desfoque é medido "
                              "nos texels do mapa). Muda na hora.");
         if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
-        if (opt_choice(TR("Shadow sharpness", "Nitidez das sombras"), &sh, sz, 4, 0, shd))
+        if (scarlet) {
+            const char *sharp_options[] = {TR("Game's", "Do jogo"), "2x"};
+            int sharp_choice = g_settings.shadow_sharp > 1 ? 1 : 0;
+            if (opt_choice(TR("Shadow sharpness", "Nitidez das sombras"), &sharp_choice,
+                           sharp_options, 2, 0, shd))
+                g_settings.shadow_sharp = sharp_choice + 1;
+        } else if (opt_choice(TR("Shadow sharpness", "Nitidez das sombras"), &sh, sz, 4, 0, shd)) {
             g_settings.shadow_sharp = sh + 1;
+        }
     }
 #ifndef __APPLE__
     {   // (runtime/nvn/vulkan/exec.c post_process)
