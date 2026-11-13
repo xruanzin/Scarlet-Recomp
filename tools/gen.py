@@ -661,6 +661,13 @@ def main():
     # Partition text into functions; any branch/call target outside its function becomes a new
     # boundary (splitting the containing function) until a fixpoint is reached.
     start_set = set(starts)
+    # Scarlet 4.0.0: experimental indirect-entry recovery.
+    if args.game == 'scarlet' and args.name == 'main' and main_build.upper() == '421C5411B487EB4D':
+        extra_entry = 0x7001D1E9A0
+        if not m.in_text(extra_entry):
+            raise ValueError('Scarlet extra entry outside executable text')
+        start_set.add(extra_entry)
+        print(f'[scarlet-aot] added entry {extra_entry:#x}', file=sys.stderr)
     for i, w in enumerate(m.words):
         if (w & 0xFC000000) == 0x94000000:
             t = m.lo + i * 4 + sext26(w) * 4
