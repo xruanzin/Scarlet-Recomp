@@ -300,7 +300,7 @@ static uint64_t scarlet_prompt_fnv(const uint8_t *p, size_t n) {
 static int scarlet_prompt_identify(const NvnTexture *t) {
     extern uint64_t g_program_id;
     if (g_program_id != 0x0100a3d008c5c000ull ||
-        !t->addr || t->depth != 1 || t->layout.layers > 1 || t->levels != 1 ||
+        !t->addr || t->depth != 1 || t->layout.layers > 1 || !t->levels ||
         (t->format != 0x49 && t->format != 0x4b)) return -1;
     int size_ok = 0;
     for (int i = 0; i < SCARLET_PROMPT_COUNT; i++)
@@ -316,6 +316,7 @@ static int scarlet_prompt_identify(const NvnTexture *t) {
     uint8_t blocks[4096];
     const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + l.offset;
     if (t->flags & 0x10) {
+        if (t->stride < l.wb * bpb) return -1;
         for (uint32_t y = 0; y < l.hb; y++)
             memcpy(blocks + (size_t)y * l.wb * bpb, src + (size_t)y * t->stride,
                    (size_t)l.wb * bpb);
