@@ -448,10 +448,26 @@ static void cosmetics_test(void);
 static uint32_t skin_rgb(void);
 static uint32_t tunic_rgb(void);
 
-uint32_t texpatch_generation(void) {  // (a rebind re-uploads the glyphs, like a style change; so does a tunic colour)
+uint32_t texpatch_generation(void) {  // Re-upload known glyphs after F1 style/binding changes.
     cosmetics_test();
-    return (1 + (uint32_t)prompt_style() + (hide_hero() ? 4 : 0) + (labels_hash() << 3)) ^ tunic_rgb() * 0x9E3779B1u ^
-           skin_rgb() * 0x85EBCA6Bu;
+    uint32_t result = (1 + (uint32_t)prompt_style() + (hide_hero() ? 4 : 0) + (labels_hash() << 3)) ^
+                      tunic_rgb() * 0x9E3779B1u ^ skin_rgb() * 0x85EBCA6Bu;
+#ifdef SCARLET_AOT
+    // The old LA renderer mapped KEYBOARD to NINTENDO, so changing the F1
+    // setting alone did not force a texture refresh in Scarlet.
+    extern uint64_t g_program_id;
+    if (g_program_id == 0x0100a3d008c5c000ull) {
+        uint32_t h = (uint32_t)(g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts);
+        for (int i = 0; i < BIND_PAD_COUNT; i++)
+            h = (h ^ (uint16_t)g_bind_pad[i]) * 16777619u;
+        for (int i = 0; i < BIND_KEY_COUNT; i++)
+            h = (h ^ (uint16_t)g_bind_key[i]) * 16777619u;
+        for (int i = 0; i < MOUSEB_COUNT; i++)
+            h = (h ^ (uint16_t)g_bind_mouse[i]) * 16777619u;
+        result ^= (h << 1) | (h >> 31);
+    }
+#endif
+    return result;
 }
 
 // ------------------------------------------------------------------ block codecs (BC4/BC5, BC1/BC3, ASTC 4x4)
