@@ -776,6 +776,196 @@ static bool draw_label(int role, int style, float *cv, bool *symbol) {
     return draw_text(cv, style == STYLE_DECK ? deck[role] : style == STYLE_XBOX ? xbox[role] : style == STYLE_PS ? ps[role] : nin[role]);
 }
 
+// Scarlet-specific runtime prompt drawings. These are generated from existing
+// F1 bindings and the chosen "Button icons" family, not imported game textures.
+#ifdef SCARLET_AOT
+static pthread_once_t scarlet_prompts_font_once = PTHREAD_ONCE_INIT;
+static int scarlet_prompt_style(void) {
+    int p = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
+    return p == PROMPTS_XBOX ? 1 : p == PROMPTS_PLAYSTATION ? 2 :
+           p == PROMPTS_KEYBOARD ? 3 : p == PROMPTS_STEAMDECK ? 4 : 0;
+}
+
+static const char *scarlet_key_label(int slot, char out[12]) {
+    if (slot < 0) return "MOVE";
+    for (int m = 0; m < MOUSEB_COUNT; m++) {
+        if (g_bind_mouse[m] != slot) continue;
+        static const char *const mouse[] = {"LMB", "RMB", "MMB", "MB4", "MB5"};
+        return mouse[m];
+    }
+    const char *src = bind_key_label(g_bind_key[slot]);
+    if (!strcmp(src, "(none)")) return "NONE";
+    if (!strcmp(src, "Return")) return "ENT";
+    if (!strcmp(src, "Escape")) return "ESC";
+    if (!strcmp(src, "Backspace")) return "BKSP";
+    if (!strcmp(src, "Space")) return "SPC";
+    if (!strcmp(src, "Tab")) return "TAB";
+    if (!strncmp(src, "Keypad ", 7)) {
+        snprintf(out, 12, "KP%.3s", src + 7);
+        return out;
+    }
+    if (!strncmp(src, "Left ", 5)) src += 5;
+    if (!strncmp(src, "Right ", 6)) src += 6;
+    snprintf(out, 12, "%.5s", src);
+    return out;
+}
+
+static const char *scarlet_pad_label(int slot, int style, char out[12]) {
+    if (slot < 0) return style == 2 ? "R3" : "RS";
+    const char *src = bind_pad_label(g_bind_pad[slot], style == 2 ? 2 : 1);
+    if (!strcmp(src, "Left stick press")) return style == 2 ? "L3" : "LS";
+    if (!strcmp(src, "Right stick press")) return style == 2 ? "R3" : "RS";
+    if (!strcmp(src, "Options")) return "OPT";
+    if (!strcmp(src, "Create")) return "SHR";
+    if (!strcmp(src, "Menu")) return "MENU";
+    if (!strcmp(src, "View")) return "VIEW";
+    snprintf(out, 12, "%.5s", src);
+    return out;
+}
+
+// Render a short name centered into the 256px vector canvas, using the font
+// already bundled by this runtime (no asset pack or gameplay control change).
+static bool scarlet_prompt_lettering(float *mask, const char *word) {
+    if (!g_font_ok || !word || !*word) return false;
+    int len = (int)strlen(word);
+    float height = len <= 1 ? 178.0f : len == 2 ? 150.0f :
+                   len == 3 ? 117.0f : len == 4 ? 93.0f : 74.0f;
+    float scale = stbtt_ScaleForPixelHeight(&g_font, height);
+    float total = 0;
+    for (int i = 0; i < len; i++) {
+        int adv, lsb;
+        stbtt_GetCodepointHMetrics(&g_font, word[i], &adv, &lsb);
+        total += adv * scale;
+        if (i + 1 < len)
+            total += stbtt_GetCodepointKernAdvance(&g_font, word[i], word[i+1]) * scale;
+    }
+    float x = (CV - total) * 0.5f, ybase = 128 + height * 0.32f;
+    for (int i = 0; i < len; i++) {
+        int adv, lsb, x0, y0, x1, y1;
+        stbtt_GetCodepointHMetrics(&g_font, word[i], &adv, &lsb);
+        stbtt_GetCodepointBitmapBox(&g_font, word[i], scale, scale, &x0, &y0, &x1, &y1);
+        int w = x1 - x0, h = y1 - y0, ox = (int)(x + x0), oy = (int)(ybase + y0);
+        if (w > 0 && h > 0 && w < CV && h < CV) {
+            unsigned char *bm = malloc((size_t)w * h);
+            if (!bm) return false;
+            stbtt_MakeCodepointBitmap(&g_font, bm, w, h, w, scale, scale, word[i]);
+            for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) {
+                int px = ox + xx, py = oy + yy;
+                if (px < 0 || py < 0 || px >= CV || py >= CV) continue;
+                float alpha = bm[(size_t)yy*w + xx] / 255.0f;
+                if (alpha > mask[py * CV + px]) mask[py * CV + px] = alpha;
+            }
+            free(bm);
+        }
+        x += adv * scale;
+        if (i + 1 < len) x += stbtt_GetCodepointKernAdvance(&g_font, word[i], word[i + 1]) * scale;
+    }
+    return true;
+}
+
+static bool scarlet_prompt_art(float *shape, float *cut, int style, int slot) {
+    char buf[12] = {0};
+    const char *word = style == 3 ? scarlet_key_label(slot, buf) :
+                        scarlet_pad_label(slot, style, buf);
+    int sym = style == 2 && (!strcmp(word, "Cross") || !strcmp(word, "Circle") ||
+                             !strcmp(word, "Square") || !strcmp(word, "Triangle"));
+    pthread_once(&scarlet_prompts_font_once, load_font);
+    if (!g_font_ok && !sym) return false;
+    for (int y = 0; y < CV; y++) for (int x = 0; x < CV; x++) {
+        float dx = fabsf(x + 0.5f - 128), dy = fabsf(y + 0.5f - 128);
+        float d;
+        if (style == 3) { // keyboard: rounded key cap
+            float ax = fmaxf(dx - 81, 0), ay = fmaxf(dy - 81, 0);
+            d = hypotf(ax, ay) + fminf(fmaxf(dx - 81, dy - 81), 0) - 24;
+        } else { // console: circular face-style token
+            d = hypotf(dx, dy) - 116;
+        }
+        shape[y * CV + x] = sat(0.5f - d);
+    }
+    if (sym) {
+        if (!strcmp(word, "Circle")) draw_ring(cut, 128, 128, 70, 22);
+        else if (!strcmp(word, "Cross")) {
+            Seg v[2] = {{65, 65, 191, 191}, {191, 65, 65, 191}};
+            draw_segs(cut, v, 2, 11);
+        } else if (!strcmp(word, "Square")) draw_rect(cut, 66, 66, 190, 190, 24);
+        else {
+            Seg v[3] = {{128, 52, 202, 188}, {202, 188, 54, 188}, {54, 188, 128, 52}};
+            draw_segs(cut, v, 3, 12);
+        }
+        return true;
+    }
+    return scarlet_prompt_lettering(cut, word);
+}
+
+// Fixed 0xff/0x00 endpoints preserve mask semantics, encoding the 4x4 block
+// in-place in BC4. BC5 has independent R and G BC4 blocks.
+static void scarlet_prompt_bc4(const uint8_t px[16], uint8_t dst[8]) {
+    dst[0] = 255; dst[1] = 0;
+    const uint8_t pal[8] = {255, 0, 219, 182, 146, 109, 73, 36};
+    uint64_t bits = 0;
+    for (int i = 0; i < 16; i++) {
+        unsigned idx = 0, best = 999;
+        for (unsigned k = 0; k < 8; k++) {
+            unsigned diff = px[i] > pal[k] ? px[i] - pal[k] : pal[k] - px[i];
+            if (diff < best) { best = diff; idx = k; }
+        }
+        bits |= (uint64_t)idx << (i * 3);
+    }
+    for (int i = 0; i < 6; i++) dst[2+i] = (uint8_t)(bits >> (i * 8));
+}
+
+static void scarlet_prompt_apply(int id, uint32_t lv, uint8_t *blocks,
+                                 uint32_t w, uint32_t h, uint32_t row) {
+    int i = id - SCARLET_PROMPT_BASE;
+    if (i < 0 || i >= SCARLET_PROMPT_COUNT || lv || !blocks) return;
+    const ScarletPromptRef *r = &scarlet_prompt_refs[i];
+    if (r->w != w || r->h != h) return;
+    int style = scarlet_prompt_style();
+    if (!style) return; // Nintendo keeps exact original art.
+    float *shape = calloc(CV * CV, sizeof *shape);
+    float *cut = calloc(CV * CV, sizeof *cut);
+    if (!shape || !cut || !scarlet_prompt_art(shape, cut, style, r->slot)) {
+        free(shape); free(cut);
+        return;
+    }
+    for (uint32_t by = 0; by < (h+3)/4; by++) for (uint32_t bx = 0; bx < (w+3)/4; bx++) {
+        uint8_t mono[16], red[16], green[16];
+        for (int k = 0; k < 16; k++) {
+            uint32_t x = bx * 4 + (uint32_t)(k & 3);
+            uint32_t y = by * 4 + (uint32_t)(k >> 2);
+            float sh = 0, ct = 0;
+            if (x < w && y < h && x >= r->x && y >= r->y &&
+                x < (uint32_t)r->x + r->box_w && y < (uint32_t)r->y + r->box_h) {
+                // Four subsamples to retain small text and curves at 20-52px.
+                for (int sy = 0; sy < 2; sy++) for (int sx = 0; sx < 2; sx++) {
+                    int px = (int)((x - r->x + (sx+0.5f)*0.5f) * CV / r->box_w);
+                    int py = (int)((y - r->y + (sy+0.5f)*0.5f) * CV / r->box_h);
+                    if (px >= CV) px = CV - 1;
+                    if (py >= CV) py = CV - 1;
+                    sh += shape[py * CV + px]; ct += cut[py * CV + px];
+                }
+                sh *= 0.25f; ct *= 0.25f;
+            }
+            float al = sh * (1 - ct);
+            mono[k] = (uint8_t)(sat(al) * 255 + 0.5f);
+            red[k] = (uint8_t)(sat(1 - ct) * 255 + 0.5f);
+            green[k] = (uint8_t)(sat(sh) * 255 + 0.5f);
+        }
+        uint8_t *target = blocks + (size_t)by * row + bx * (r->format == 0x4b ? 16 : 8);
+        if (r->format == 0x4b) {
+            scarlet_prompt_bc4(red, target);
+            scarlet_prompt_bc4(green, target + 8);
+        } else scarlet_prompt_bc4(mono, target);
+    }
+    free(shape); free(cut);
+    static int written;
+    if (written++ < 24)
+        LOG("[scarlet-prompts] replaced in-game button glyph %d with %s artwork (F1 selection)\n",
+            i, style == 1 ? "Xbox" : style == 2 ? "PlayStation" :
+               style == 3 ? "keyboard/mouse" : "Steam Deck");
+}
+#endif
+
 // Relabel one glyph: img (W x H RGBA8, alpha channel `ach` = the shape), region x0,y0 w,h. flip: the region is
 // stored upside down (font sheets).
 static void relabel(uint8_t *img, int W, int x0, int y0, int w, int h, int ach, bool flip, int role, int style,
@@ -1219,6 +1409,12 @@ static void skin_apply(int id, uint32_t lv, uint8_t *blocks, uint32_t w, uint32_
 static const int8_t k_sheet_roles[18] = {R_PLUS, R_MINUS, R_A, R_B, 0, 0, R_L, 0, R_R, 0, R_X, R_Y, R_ZL, R_L, 0, R_R, 0, R_ZR};
 
 void texpatch_apply(int id, uint32_t lv, uint8_t *blocks, uint32_t w, uint32_t h, uint32_t row) {
+#ifdef SCARLET_AOT
+    if (id >= SCARLET_PROMPT_BASE && id < SCARLET_PROMPT_BASE + SCARLET_PROMPT_COUNT) {
+        scarlet_prompt_apply(id, lv, blocks, w, h, row);
+        return;
+    }
+#endif
     if (id < 0 || id >= g_nrefs) return;
     const Ref *r = &g_refs[id];
     if (r->role == R_TUNIC || r->role == R_TUNIC_RED || r->role == R_TUNIC_BLUE) {
