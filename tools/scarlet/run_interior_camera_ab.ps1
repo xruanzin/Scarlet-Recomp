@@ -63,14 +63,25 @@ foreach ($spec in $specs) {
     }
     $probeArgs['InputScript'] = $inputSpec
     Write-Host "Starting an isolated $fps FPS test with same saved scene..." -ForegroundColor Cyan
+    $runsFolder = Join-Path $repo 'build/native-timing-runs'
+    $before = @(Get-ChildItem -LiteralPath $runsFolder -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName })
     & $runner @probeArgs
     if ($LASTEXITCODE -ne 0) {
         throw "$fps FPS probe stopped with exit code $LASTEXITCODE. Check build/native-timing-runs."
     }
+    $created = @(Get-ChildItem -LiteralPath $runsFolder -Directory -ErrorAction Stop |
+        Where-Object { $before -notcontains $_.FullName })
+    if ($created.Count -ne 1) {
+        throw "Expected one new private run directory for $fps FPS; found $($created.Count). Inspect build/native-timing-runs."
+    }
+    $runPath = $created[0].FullName
     $manifest.result_runs += [ordered]@{
         fps = $fps; shot_frames = "$start..$end"
         input_script = $inputSpec
-        note = 'Review separate timestamped folders in build/native-timing-runs'
+        run_directory = $runPath
+        result = (Join-Path $runPath 'result.json')
+        screenshots = (Join-Path $runPath 'userdata/build/frames')
     }
     if ((Get-Process scarlet -ErrorAction SilentlyContinue)) {
         throw "$fps FPS Scarlet still running; abort next test to preserve process isolation."
