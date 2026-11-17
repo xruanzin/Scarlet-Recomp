@@ -17,6 +17,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <utility>
 
 #include "cpu.h"
 #include "cache_sha256.h"
