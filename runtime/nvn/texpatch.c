@@ -258,7 +258,94 @@ static TexLayout g_tunic_layout;  // (the game's tunic texture: its levels' plac
 static bool g_tunic_layout_ok;
 bool texpatch_is_item_cursor(int id) { return id >= 0 && id < g_nrefs && g_refs[id].role == R_ITEM_CURSOR; }
 
+// Scarlet/Violet 4.0.0: content fingerprints of the actual UI button masks.
+// Adapted from the independent Scarlet prompt survey in Tera-recomp (MIT,
+// Valiantsin Dzerakh). No Nintendo texture bytes or custom art are copied.
+// Exact size, format and FNV-1a hash must all match before any upload edit.
+#ifdef SCARLET_AOT
+#define SCARLET_PROMPT_BASE 512
+typedef struct {
+    uint64_t fingerprint;
+    uint16_t w, h;
+    uint8_t format;           // NVN 0x49 BC4; 0x4B BC5
+    int8_t slot;
+    uint8_t x, y, box_w, box_h;
+} ScarletPromptRef;
+static const ScarletPromptRef scarlet_prompt_refs[] = {
+    {0x23aa6e7169a0df59ull, 32, 32, 0x49, BIND_A,      0, 0, 32, 32},
+    {0xc65d9ebf80426894ull, 32, 32, 0x49, BIND_B,      0, 0, 32, 32},
+    {0xe5948a375be1d2a8ull, 32, 32, 0x49, BIND_X,      0, 0, 32, 32},
+    {0xab7c0d17e82d332eull, 32, 32, 0x49, BIND_Y,      0, 0, 32, 32},
+    {0x180b485f97508f56ull, 32, 32, 0x49, BIND_ZL,     0, 0, 32, 32},
+    {0x69299763fb39a821ull, 32, 32, 0x49, BIND_ZR,     0, 0, 32, 32},
+    {0xe95935a7c0c962acull, 20, 20, 0x49, BIND_PLUS,   0, 0, 20, 20},
+    {0x8e8d1c4c02a0ec80ull, 20, 20, 0x49, BIND_MINUS,  0, 0, 20, 20},
+    {0x8edafa608a25d09cull, 32, 32, 0x49, BIND_PLUS,   0, 0, 32, 32},
+    {0x4b2d6a04a9553b70ull, 32, 32, 0x49, BIND_MINUS,  0, 0, 32, 32},
+    {0x3f13cac4dc099f25ull, 32, 32, 0x49, -1,          0, 0, 32, 32}, // camera
+    {0x25794d37de777ee6ull, 40, 40, 0x49, BIND_RSTICK, 0, 0, 40, 40},
+    {0x4eb2b3ca37ba9d08ull, 40, 40, 0x49, BIND_L,      1, 4, 38, 32},
+    {0x26b1270192722106ull, 40, 40, 0x49, BIND_R,      1, 4, 38, 32},
+    {0x5da9c4289de85445ull, 52, 70, 0x4B, BIND_X,      1,10, 50, 50},
+    {0xca160275ec218944ull, 52, 70, 0x4B, BIND_Y,      1,10, 50, 50},
+};
+#define SCARLET_PROMPT_COUNT ((int)(sizeof scarlet_prompt_refs / sizeof *scarlet_prompt_refs))
+
+static uint64_t scarlet_prompt_fnv(const uint8_t *p, size_t n) {
+    uint64_t v = 0xcbf29ce484222325ull;
+    for (size_t i = 0; i < n; i++) v = (v ^ p[i]) * 0x100000001b3ull;
+    return v;
+}
+
+static int scarlet_prompt_identify(const NvnTexture *t) {
+    extern uint64_t g_program_id;
+    if (g_program_id != 0x0100a3d008c5c000ull ||
+        !t->addr || t->depth != 1 || t->layout.layers > 1 || t->levels != 1 ||
+        (t->format != 0x49 && t->format != 0x4b)) return -1;
+    int size_ok = 0;
+    for (int i = 0; i < SCARLET_PROMPT_COUNT; i++)
+        if (scarlet_prompt_refs[i].w == t->width &&
+            scarlet_prompt_refs[i].h == t->height &&
+            scarlet_prompt_refs[i].format == t->format) { size_ok = 1; break; }
+    if (!size_ok) return -1;
+
+    LevelLayout l = tegra_level(&t->layout, 0);
+    uint32_t bpb = t->format == 0x4b ? 16 : 8;
+    size_t n = (size_t)l.wb * l.hb * bpb;
+    if (!n || n > 4096) return -1;
+    uint8_t blocks[4096];
+    const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + l.offset;
+    if (t->flags & 0x10) {
+        for (uint32_t y = 0; y < l.hb; y++)
+            memcpy(blocks + (size_t)y * l.wb * bpb, src + (size_t)y * t->stride,
+                   (size_t)l.wb * bpb);
+    } else {
+        tegra_deswizzle(src, blocks, l.wb, l.hb, 1, bpb,
+                        l.block_height_log2, l.block_depth_log2);
+    }
+    uint64_t signature = scarlet_prompt_fnv(blocks, n);
+    for (int i = 0; i < SCARLET_PROMPT_COUNT; i++) {
+        const ScarletPromptRef *r = &scarlet_prompt_refs[i];
+        if (r->fingerprint == signature && r->w == t->width &&
+            r->h == t->height && r->format == t->format) {
+            static int logged;
+            if (logged++ < 24)
+                LOG("[scarlet-prompts] matched original button mask %d (%ux%u BC%d)\n",
+                    i, t->width, t->height, bpb == 16 ? 5 : 4);
+            return SCARLET_PROMPT_BASE + i;
+        }
+    }
+    return -1;
+}
+static void scarlet_prompt_apply(int id, uint32_t lv, uint8_t *blocks,
+                                 uint32_t w, uint32_t h, uint32_t row);
+#endif
+
 int texpatch_identify(const NvnTexture *t) {
+#ifdef SCARLET_AOT
+    int scarlet_id = scarlet_prompt_identify(t);
+    if (scarlet_id >= 0) return scarlet_id;
+#endif
     pthread_once(&g_once, load_refs);
     if (!t->addr || t->depth > 1) return -1;
     uint64_t total = tegra_total_size(&t->layout);
