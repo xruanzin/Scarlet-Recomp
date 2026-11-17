@@ -866,6 +866,14 @@ static bool scarlet_prompt_lettering(float *mask, const char *word) {
         if (i + 1 < len)
             total += stbtt_GetCodepointKernAdvance(&g_font, word[i], word[i+1]) * scale;
     }
+    // START / SELECT are longer than the legacy Menu / View symbols. Fit
+    // their complete names within the token instead of clipping side letters.
+    if (total > CV - 24) {
+        float fit = (CV - 24) / total;
+        scale *= fit;
+        height *= fit;
+        total = CV - 24;
+    }
     float x = (CV - total) * 0.5f, ybase = 128 + height * 0.32f;
     for (int i = 0; i < len; i++) {
         int adv, lsb, x0, y0, x1, y1;
