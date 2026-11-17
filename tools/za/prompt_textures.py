@@ -336,15 +336,15 @@ KEEP_SHAPE = ('_hold_', '_keep_', '_ol_', 'title')  # (shapes with a mark of the
 # them when the bindings change. A d-pad direction or stick press on its own place keeps the game's drawing.
 PAD_LABEL = {
     'xbox': {'south': 'A', 'east': 'B', 'west': 'X', 'north': 'Y', 'lshoulder': 'LB', 'rshoulder': 'RB',
-             'ltrigger': 'LT', 'rtrigger': 'RT', 'start': ('menu',), 'back': ('view',), 'lstick': 'LS', 'rstick': 'RS',
+             'ltrigger': 'LT', 'rtrigger': 'RT', 'start': 'START', 'back': 'SELECT', 'lstick': 'LS', 'rstick': 'RS',
              'guide': 'XB', 'misc1': 'SH', 'rpaddle1': 'P1', 'lpaddle1': 'P3', 'rpaddle2': 'P2', 'lpaddle2': 'P4'},
     # the Deck: Xbox's faces and Menu / View, its own names for the shoulders, triggers, sticks and back buttons
     'steamdeck': {'south': 'A', 'east': 'B', 'west': 'X', 'north': 'Y', 'lshoulder': 'L1', 'rshoulder': 'R1',
                   'ltrigger': 'L2', 'rtrigger': 'R2', 'start': ('menu',), 'back': ('view',), 'lstick': 'L3', 'rstick': 'R3',
                   'guide': 'ST', 'misc1': 'QA', 'rpaddle1': 'R4', 'lpaddle1': 'L4', 'rpaddle2': 'R5', 'lpaddle2': 'L5'},
     'playstation': {'south': ('cross',), 'east': ('circle',), 'west': ('square',), 'north': ('triangle',),
-                    'lshoulder': 'L1', 'rshoulder': 'R1', 'ltrigger': 'L2', 'rtrigger': 'R2', 'start': ('options',),
-                    'back': ('share',), 'lstick': 'L3', 'rstick': 'R3', 'guide': 'PS', 'touchpad': 'TP',
+                    'lshoulder': 'L1', 'rshoulder': 'R1', 'ltrigger': 'L2', 'rtrigger': 'R2', 'start': 'START',
+                    'back': 'SELECT', 'lstick': 'L3', 'rstick': 'R3', 'guide': 'PS', 'touchpad': 'TP',
                     'misc1': 'M', 'rpaddle1': 'RB', 'lpaddle1': 'LB', 'rpaddle2': 'RF', 'lpaddle2': 'LF'},
     # a Nintendo controller (Pro Controller, Joy-Cons): only a moved input gets a new label
     'nintendo': {'south': 'B', 'east': 'A', 'west': 'Y', 'north': 'X', 'lshoulder': 'L', 'rshoulder': 'R',
