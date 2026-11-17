@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../runtime/scarlet_camera_script_patch.h"
+#include "../../runtime/hle/scarlet_camera_script_patch.h"
 
 int main(void) {
     size_t n = SCARLET_CAMERA_STEP_OFFSET + 64;
