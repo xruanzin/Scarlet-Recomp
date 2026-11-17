@@ -84,12 +84,12 @@ const char *bind_pad_label(int host, int fam) {
         "Right paddle 2", "Left paddle 2", "Touchpad", "Misc 2", "Misc 3", "Misc 4", "Misc 5", "Misc 6", "ZL", "ZR",
     };
     static const char *const xb[PADB_HOST_COUNT] = {
-        "A", "B", "X", "Y", "View", "Xbox", "Menu", "LS (press)", "RS (press)", "LB", "RB",
+        "A", "B", "X", "Y", "Select", "Xbox", "Start", "LS (press)", "RS (press)", "LB", "RB",
         "D-pad Up", "D-pad Down", "D-pad Left", "D-pad Right", "Share", "Paddle P1", "Paddle P3",
         "Paddle P2", "Paddle P4", "Touchpad", "Misc 2", "Misc 3", "Misc 4", "Misc 5", "Misc 6", "LT", "RT",
     };
     static const char *const ps[PADB_HOST_COUNT] = {
-        "Cross", "Circle", "Square", "Triangle", "Create", "PS", "Options", "L3", "R3", "L1", "R1",
+        "×", "○", "□", "△", "Select", "PS", "Start", "L3", "R3", "L1", "R1",
         "D-pad Up", "D-pad Down", "D-pad Left", "D-pad Right", "Mute", "Right back button", "Left back button",
         "Right Fn", "Left Fn", "Touchpad", "Misc 2", "Misc 3", "Misc 4", "Misc 5", "Misc 6", "L2", "R2",
     };
