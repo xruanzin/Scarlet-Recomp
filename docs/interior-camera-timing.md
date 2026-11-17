@@ -192,6 +192,57 @@ copyrighted scripts are committed.
 & .\.venv-scarlet-aot-fixed\Scripts\python.exe tools/scarlet/trace_interior_camera_scheduler.py build/scarlet-script-analysis/21977-be21e65463b9a98f.blua
 ```
 
+## Verified scheduler registration and the next real-game test
+
+The user ran the identity-checked read-only scheduler inspection on the
+original decoded Scarlet 4.0.0 \`main.blua\`. All five synthetic scheduler
+guard tests passed. The real script inspection reported:
+
+| Prototype | Registered class | Function |
+| --- | --- | --- |
+| \`0.17518\` | \`CEAB931B40E0610B8\` | \`F20A40E2F8B95D5F6\` |
+| \`0.17566\` | \`CD00CF28AF6D6C9ED\` | \`F22C7B81A049FA20D\` |
+| \`0.17567\` | \`CD00CF28AF6D6C9ED\` | \`FC0150FC2959FFA71\` |
+
+\`0.17518\` accumulates frame time in \`self[21]\`, stores the
+integer number of elapsed 30-Hz steps in \`self[22]\` and
+dispatches \`self:FC0150FC2959FFA71(dt, self[22])\`. The lookup of the
+method \`FC0150FC2959FFA71\` can dynamically resolve to the camera
+controller's \`0.17567\`, **but the different class registrations mean
+that the base/derived instance relationship and the actual in-game
+receiver are not established by the static test alone**.
+
+The next requirement is a **real interior scene** to confirm 60-FPS
+hold/jump behavior, not a further broad Lua constant search. A new
+PowerShell wrapper \`tools/scarlet/run_interior_camera_ab.ps1\` is available
+for an opt-in A/B test, using the existing native launcher. It:
+
+1. Requires an existing local copy of a save positioned **inside a house**
+   in a directory containing \`save/\`; it will not continue on a missing
+   or empty save.
+2. Runs 30 FPS and 60 FPS sequentially from **separate copies** of the
+   same source save, using the previously built native binary and
+   identical nominal movement duration.
+3. Captures 16 consecutive screenshots per run, beginning at game frame
+   1200 for 30 FPS or 2400 for 60 FPS, and records the exact output
+   folders in a comparison manifest under ignored \`build/\`.
+4. Refuses to run outside this experimental work branch, on a dirty
+   source tree, or while \`scarlet.exe\` is running. It does not edit
+   source saves or upload game content.
+
+Example, once an **interior** test save exists:
+
+\`\`\`powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/scarlet/run_interior_camera_ab.ps1 -SaveSource "D:\Path\To\PrivateInteriorSaveDirectory" -Seconds 85
+\`\`\`
+
+This wrapper has been reviewed statically but **not run against Scarlet
+in this environment**. Game screenshots, output folders and the
+measured camera trajectory are needed to validate or reject the jitter
+hypothesis. It is not an FPS patch. Do not publish saves, ROMs,
+keys, copyrighted Lua scripts or userdata; share only requested
+diagnostic summaries/screenshots after checking for personal data.
+
 ## Integration criteria before a native camera fix
 
 1. Reproduce interior jitter with a **private save starting inside a house**
