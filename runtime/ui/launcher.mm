@@ -2015,15 +2015,31 @@ extern "C" void launcher_run(const char *root) {
     // Latin-1 (Portuguese's accents) + ‹ › → ✓ ▸ — …
     static const ImWchar ranges[] = {0x20, 0xFF, 0x2014, 0x2014, 0x2026, 0x2026, 0x2039, 0x203A, 0x2192, 0x2192,
                                      0x2713, 0x2713, 0x25B8, 0x25B8, 0};
+    float prompt_small_px = 0, prompt_menu_px = 0;
     for (const char *p : fonts) {
         if (g_font_menu || !*p || !file_exists(p)) continue;
         bool b2 = p == own.c_str() || getenv("LARECOMP_LAUNCHER_FONT");
-        g_font_small = io.Fonts->AddFontFromFileTTF(p, 30 * (b2 ? 1.75f : 1), NULL, ranges);
-        g_font_menu = io.Fonts->AddFontFromFileTTF(p, 52 * (b2 ? 1.85f : 1), NULL, ranges);
+        prompt_small_px = 30 * (b2 ? 1.75f : 1);
+        prompt_menu_px = 52 * (b2 ? 1.85f : 1);
+        g_font_small = io.Fonts->AddFontFromFileTTF(p, prompt_small_px, NULL, ranges);
+        g_font_menu = io.Fonts->AddFontFromFileTTF(p, prompt_menu_px, NULL, ranges);
         // the start screen's own sizes, built at 1.5x the 720p layout (sharp up to about 1080p)
         g_fb = b2 ? 1.5f : 1;
         auto add = [&](float units) { return io.Fonts->AddFontFromFileTTF(p, units * g_fb * 1.5f, NULL, ranges); };
         F_SMALL = add(13), F_BODY = add(15), F_LABEL = add(17), F_H2 = add(26), F_BTN = add(28), F_H1 = add(56);
+    }
+    // The start screen also hosts the F1 Controls tab. Ensure □ ○ △ are
+    // true symbols here, even when the selected display font lacks them.
+    char prompt_fallback[1024];
+    if (g_font_small && g_font_menu && rt_resource("DejaVuSans.ttf", "third_party/fonts/DejaVu/DejaVuSans.ttf",
+                                                    prompt_fallback, sizeof prompt_fallback)) {
+        static const ImWchar ps_shapes[] = {0x25A1, 0x25A1, 0x25B3, 0x25B3, 0x25CB, 0x25CB, 0};
+        ImFontConfig merge_cfg;
+        merge_cfg.MergeMode = true;
+        merge_cfg.DstFont = g_font_small;
+        io.Fonts->AddFontFromFileTTF(prompt_fallback, prompt_small_px, &merge_cfg, ps_shapes);
+        merge_cfg.DstFont = g_font_menu;
+        io.Fonts->AddFontFromFileTTF(prompt_fallback, prompt_menu_px, &merge_cfg, ps_shapes);
     }
     if (!g_font_menu) {
         g_font_small = g_font_menu = io.Fonts->AddFontDefault();
