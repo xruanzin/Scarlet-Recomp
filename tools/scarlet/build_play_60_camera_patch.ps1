@@ -71,7 +71,11 @@ if (-not $Gen) {
         $candidates | ForEach-Object { Write-Host "AOT candidate: $($_.Folder)" }
     }
 }
-$genFull = [IO.Path]::GetFullPath((Join-Path $repo $Gen))
+$genFull = if ([IO.Path]::IsPathRooted($Gen)) {
+    [IO.Path]::GetFullPath($Gen)
+} else {
+    [IO.Path]::GetFullPath((Join-Path $repo $Gen))
+}
 if (-not $genFull.StartsWith($repo + [IO.Path]::DirectorySeparatorChar,
                             [StringComparison]::OrdinalIgnoreCase)) {
     throw 'AOT generated source must stay inside this repository.'
