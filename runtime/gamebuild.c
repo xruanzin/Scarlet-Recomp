@@ -487,9 +487,6 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
 #ifdef SCARLET_AOT
         add(&a, "--game"); add(&a, "scarlet");
 #endif
-#ifdef SCARLET_AOT
-        add(&a, "--game"); add(&a, "scarlet");
-#endif
         g->p = spawn(a.v, g->log);
         args_free(&a);
         if (!g->p) { snprintf(why, why_size, "the game code builder didn't start"); ok = false; }
