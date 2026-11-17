@@ -44,9 +44,25 @@ confirms:
   that step count to a downstream method; changing this global scheduler
   could affect other gameplay components.
 
-The remaining static link is whether `0.30688` is the function registered
-as `CD9AE7C27B00EB066.SF667EA15F51B1676`, and whether the call at
-`0.17567:37` is actually used by `InteriorCameraBehavior.hx`.
+The new `interior-camera-bindings.json` **resolves the first static link**:
+root PCs 427257–427261 load namespace `CD9AE7C27B00EB066`,
+member `SF667EA15F51B1676`, create `CLOSURE 0.30688` and
+`SETTABLE`. Thus the registered interpolator and the method looked up
+at `0.17567:31–37` are statically associated. The same member is also
+read by prototype `0.18722` (at PC 351–352), so the interpolator is
+**not proven exclusive** to this controller.
+
+**Still unverified:** whether `0.17567` is invoked for the indoor camera
+during gameplay, which arguments represent camera-only state, and the
+original real-time smoothing coefficient. There is no safe basis yet for
+changing `0.30688` globally or replacing the scheduler's `1/30`
+step. In particular `0.30688` skips interpolation for a zero count;
+changing alpha alone does not make it update every 60-FPS frame.
+
+`tools/scarlet/verify_interior_camera_binding.py` checks these exact
+registration and call-site relationships, including their Lua registers,
+from the exported JSON. It verifies static code linkage, not camera
+behavior or game runtime execution.
 
 The new read-only `trace_interior_camera_bindings.py` prints the root
 `CLOSURE` registration windows and relevant hashed-member uses to
