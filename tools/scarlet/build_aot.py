@@ -21,7 +21,7 @@ AOT_TOOLS = [
     "tools/passes.py", "tools/flagfuse.py", "tools/regpromote.py",
     "tools/simd_c.py", "tools/za_patches.py",
     "tools/scarlet/preflight.py", "runtime/hle/hle_symbols.txt",
-    "tools/scarlet/native_timing.py",
+    "tools/scarlet/native_timing.py", "tools/scarlet/lua_camera_native.py",
     "runtime/cpu.h", "runtime/simd.h", "runtime/simd_fp.h",
     "tools/gamelib_entry.c", "Makefile",
 ]
