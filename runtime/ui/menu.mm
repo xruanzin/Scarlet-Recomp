@@ -1476,7 +1476,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 
     if (open) {
         // dim the game behind the menu (towards the start screen's night blue)
-        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(4, 10, 19, 150));
+        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(22, 24, 27, 132));
         float w = fminf(io.DisplaySize.x * 0.9f, 1500 * scale), h = io.DisplaySize.y - 2 * 18 * scale;  // (all the height: a slim margin)
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
@@ -1486,21 +1486,29 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::PushFont(g_menu_font);
         // header as on the start screen's Settings: the title, and a close X in the corner (B / Esc too). ("Title
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
-        {   // ZA Recomp's mark (a hexagon with a Z, as on the start screen), then the title
+        {   // Scarlet identity: red tile with a white S gesture, no legacy insignia.
             float u = ImGui::GetFontSize() * 1.15f / 30;
-            ImVec2 o = ImGui::GetCursorScreenPos();
-            o.y += ImGui::GetFontSize() * 0.35f;
-            auto Q = [&](float x, float y) { return ImVec2(o.x + x * u, o.y + y * u); };
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            p.y += ImGui::GetFontSize() * 0.10f;
+            const float side = 31 * u;
             ImDrawList *dl = ImGui::GetWindowDrawList();
-            ImVec2 hex[] = {Q(15, 2), Q(26, 8.5f), Q(26, 21.5f), Q(15, 28), Q(4, 21.5f), Q(4, 8.5f)};
-            dl->AddPolyline(hex, 6, IM_COL32(242, 181, 68, 255), ImDrawFlags_Closed, 2 * u);
-            ImVec2 z[] = {Q(10.5f, 10.5f), Q(19.5f, 10.5f), Q(10.5f, 19.5f), Q(19.5f, 19.5f)};
-            dl->AddPolyline(z, 4, IM_COL32(238, 243, 246, 255), 0, 2.4f * u);
-            ImGui::Dummy(ImVec2(32 * u, 1));
+            dl->AddRectFilled(p, ImVec2(p.x + side, p.y + side),
+                              IM_COL32(202, 39, 56, 255), 9 * u);
+            dl->AddLine(ImVec2(p.x + 22*u, p.y + 9*u), ImVec2(p.x + 11*u, p.y + 9*u),
+                        IM_COL32(255, 255, 255, 255), 3.1f*u);
+            dl->AddLine(ImVec2(p.x + 11*u, p.y + 9*u), ImVec2(p.x + 20*u, p.y + 17*u),
+                        IM_COL32(255, 255, 255, 255), 3.1f*u);
+            dl->AddLine(ImVec2(p.x + 20*u, p.y + 17*u), ImVec2(p.x + 10*u, p.y + 24*u),
+                        IM_COL32(255, 255, 255, 255), 3.1f*u);
+            ImGui::Dummy(ImVec2(36 * u, side));
             ImGui::SameLine();
         }
         ImGui::PushFont(g_font_big);
+        #ifdef SCARLET_AOT
+        ImGui::TextColored(ImVec4(0.79f, 0.15f, 0.21f, 1), "%s", "SCARLET RECOMP");
+#else
         ImGui::TextColored(ImVec4(0.95f, 0.71f, 0.27f, 1), "%s", TR("Settings", "Configurações"));
+#endif
         ImGui::PopFont();
         {
             float bx = 44 * scale;
