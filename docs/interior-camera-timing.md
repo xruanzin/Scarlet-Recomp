@@ -118,6 +118,67 @@ To inspect the previously decoded private Lua file *without modifying it*:
 It checks the exact decoded SHA-256 and recorded bytecode structure. If
 the input differs, it stops instead of guessing offsets.
 
+## 2026-11-17 — 60-FPS live report and proven diagonal input defect
+
+Manual gameplay with 60 FPS enabled reports **three separate symptoms**:
+interior-camera shake, faster-than-cardinal diagonal running, and some
+interior animations finishing too early. The manual runtime log shows
+`[scarlet-fps] requested 60 FPS, period 16666667 ns`, with near-steady
+~59 FPS accepted presents and `clock1_supplied_ns` near 1:1 wall time.
+This is **not** evidence that all gameplay or animation clock domains are
+correct. No automatic gameplay-speed correction has been verified.
+
+Review of `runtime/hle/input.c` found a concrete host-input bug:
+`recompute_keyboard()` independently sets each WASD left-stick axis to
+±32767. Diagonals had magnitude `sqrt(32767² + 32767²)`, approximately
+141% of the unit circle, and the assembled Npad state did not bound the
+left-stick vector. The d-pad movement path already normalized diagonals,
+but normal WASD keyboard input did not.
+
+Added `runtime/hle/scarlet_stick_normalize.h` and a Scarlet-only
+normalization in `runtime/hle/input.c`, after combining keyboard,
+gamepad and scripted inputs but before recording/output to Npad state.
+The helper preserves cardinal and all in-circle analog inputs. It clamps
+only out-of-circle vectors to radius 32767. This is **not** an adjustment
+to animation playback, global game speed or the camera.
+
+- Default in the Scarlet AOT build: enabled.
+- To compare old behavior at runtime: set
+  `SCARLET_NORMALIZE_LSTICK=0` before launching; no recompile is
+  required to toggle once the patched EXE has been built.
+- `tools/scarlet/test_left_stick_normalization.c` covers cardinal,
+  diagonal, signs, analog inputs, borderline values and zero.
+- A standalone Linux C compile and execution of the same helper/test
+  cases passed; **Windows Scarlet game integration has not yet been
+  tested**.
+
+Only the runtime EXE must be rebuilt; do not regenerate game code or
+overwrite an unrelated `lasgame.dll`. In the user's Windows MSYS2
+UCRT64 terminal, from the repository root:
+
+```sh
+make -j4 SCARLET_AOT=1 B=build/window-full-20261112 build/window-full-20261112/scarlet.exe
+```
+
+Keep a backup of `build/window-full-20261112/scarlet.exe` before linking.
+For validation, check `[scarlet-input] circular left-stick limit enabled`
+and run gameplay with `SCARLET_TARGET_FPS=60`, then compare straight
+and diagonal movement at an identical speed mode. A visual improvement
+in diagonal movement alone does **not** solve or validate the camera and
+premature-animation reports.
+
+The A/B test wrapper additionally had an instrumentation bug:
+`SCARLET_POSITION_TRACE` requires `first:last`, but the script passed
+`first,last`. That delimiter is corrected; its earlier runs therefore
+did not collect this optional bounded position trace. The legacy 30-FPS
+test timing out after 85 seconds is not a game crash, because the probe
+intentionally stops still-running sessions.
+
+For the remaining issues, check per-scene animation tick counts and
+controller-specific camera updates at the presentation and simulation
+boundaries. Do not apply the uploaded dynamic-FPS ASM or all Lua 1/30
+replacements to the AOT binary without a verified, native equivalent.
+
 ## Controller-specific argument mapping
 
 The supplied Lua prototype dump gives a more specific opportunity than
