@@ -23,7 +23,11 @@ static float g_scale = 1;
 static std::string g_desc_hover, g_desc_focus, g_desc_shown;  // this frame's hovered / selected row, and the last shown
 static std::string g_desc_first;  // the page's first row (shown until a row is selected or hovered)
 
-static const ImU32 kGold = IM_COL32(242, 181, 68, 255);  // (ZA Recomp's gold, as its start screen)
+#ifdef SCARLET_AOT
+static const ImU32 kGold = IM_COL32(202, 39, 56, 255);  // Scarlet focus.
+#else
+static const ImU32 kGold = IM_COL32(242, 181, 68, 255);
+#endif
 
 // Upper case, Portuguese's accented letters too (UTF-8 Latin-1: C3 A0..BE -> C3 80..9E, but not ÷)
 static void upper_utf8(std::string &t) {
@@ -99,7 +103,11 @@ void opt_section(const char *title) {
     std::string t = title;
     upper_utf8(t);
     if (ImGui::GetCursorPosY() > ImGui::GetStyle().WindowPadding.y + 1) ImGui::Dummy(ImVec2(0, 10 * g_scale));
-    ImGui::TextColored(ImVec4(0.25f, 0.82f, 0.79f, 1), "%s", t.c_str());  // (section titles in teal)
+#ifdef SCARLET_AOT
+    ImGui::TextColored(ImVec4(0.79f, 0.15f, 0.21f, 1), "%s", t.c_str());
+#else
+    ImGui::TextColored(ImVec4(0.25f, 0.82f, 0.79f, 1), "%s", t.c_str());
+#endif
 }
 
 // One row: draws it, handles A / click and left / right while selected. Returns 2 (A / click), -1 / +1 (left / right) or 0.
@@ -163,21 +171,41 @@ static int row(const char *label, const std::string &value, bool changed, const 
 
     ImDrawList *dl = ImGui::GetWindowDrawList();
     float r = 9 * g_scale, pad = 16 * g_scale, fs = ImGui::GetFontSize();
+#ifdef SCARLET_AOT
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                      hov || foc ? IM_COL32(255, 238, 241, 255) : IM_COL32(248, 249, 250, 255), r);
+#else
     dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), hov || foc ? IM_COL32(255, 255, 255, 22) : IM_COL32(0, 0, 0, 40), r);
+#endif
+#ifdef SCARLET_AOT
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h),
+                hov || foc ? (off ? IM_COL32(202, 39, 56, 105) : kGold)
+                           : mark ? IM_COL32(202, 39, 56, 135) : IM_COL32(216, 218, 223, 255),
+                r, 0, hov || foc || mark ? 2.0f : 1.0f);
+#else
     dl->AddRect(p, ImVec2(p.x + w, p.y + h), hov || foc ? (off ? IM_COL32(242, 181, 68, 120) : kGold)
                                              : mark ? IM_COL32(242, 181, 68, 130) : IM_COL32(255, 255, 255, off ? 18 : 38),
                 r, 0, hov || foc || mark ? 2.0f : 1.0f);
+#endif
     std::string t = label;
     if (upper)
         upper_utf8(t);
     float ty = p.y + (h - fs) * 0.5f;
-    ImU32 label_col = off ? IM_COL32(100, 116, 128, 255) : IM_COL32(238, 243, 246, 255);  // (greyed out: clearly dim)
+#ifdef SCARLET_AOT
+    ImU32 label_col = off ? IM_COL32(143, 146, 151, 255) : IM_COL32(39, 41, 46, 255);
+#else
+    ImU32 label_col = off ? IM_COL32(100, 116, 128, 255) : IM_COL32(238, 243, 246, 255);
+#endif
     dl->AddText(ImVec2(p.x + pad, ty), label_col, t.c_str());
     float right = p.x + w - pad;  // (the value's right edge)
     if (arrows && !value.empty()) {  // ◀ value ▶, drawn (the fonts have no arrow glyphs); a click on one steps
         float aw = fs * 0.42f, gap = fs * 0.55f, cy = ty + fs * 0.52f;
         float rx = right - aw, lx = rx - gap - ImGui::CalcTextSize(value.c_str()).x - gap - aw;
+#ifdef SCARLET_AOT
+        ImU32 ac = off ? IM_COL32(143, 146, 151, 255) : hov || foc ? kGold : IM_COL32(90, 96, 103, 255);
+#else
         ImU32 ac = off ? IM_COL32(100, 116, 128, 255) : hov || foc ? kGold : IM_COL32(159, 179, 194, 255);
+#endif
         dl->AddTriangleFilled(ImVec2(lx, cy), ImVec2(lx + aw, cy - aw * 0.75f), ImVec2(lx + aw, cy + aw * 0.75f), ac);
         dl->AddTriangleFilled(ImVec2(rx + aw, cy), ImVec2(rx, cy - aw * 0.75f), ImVec2(rx, cy + aw * 0.75f), ac);
         if (clicked && !off) {
@@ -189,7 +217,11 @@ static int row(const char *label, const std::string &value, bool changed, const 
     }
     if (chevron) {  // ">", drawn (as the arrows above)
         float cw = fs * 0.2f, cy = ty + fs * 0.52f;
+#ifdef SCARLET_AOT
+        ImU32 cc = off ? IM_COL32(143, 146, 151, 255) : hov || foc ? kGold : IM_COL32(93, 98, 105, 255);
+#else
         ImU32 cc = off ? IM_COL32(110, 110, 100, 255) : hov || foc ? kGold : IM_COL32(205, 205, 195, 255);
+#endif
         const ImVec2 pts[] = {ImVec2(right - cw, cy - cw * 1.1f), ImVec2(right, cy), ImVec2(right - cw, cy + cw * 1.1f)};
         dl->AddPolyline(pts, 3, cc, 0, 2.6f * g_scale);
         right -= cw + fs * 0.55f;
