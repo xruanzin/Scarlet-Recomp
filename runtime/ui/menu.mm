@@ -540,12 +540,12 @@ static void tab_display(void) {
                            TR("30 fps: as on the Switch (recommended). 60 fps (experimental): the game presents every vsync "
                               "and steps its world 1/60 s a frame - smoother, but it needs a fast CPU: the game counts "
                               "frames, not time, so below 60 fps everything moves in slow motion. When this PC doesn't "
-                              "keep 60, ZA Recomp goes back to 30 by itself (choose 60 again to retry). 60 fps (always): "
+                              "keep 60, the runtime returns to 30 automatically (choose 60 again to retry). 60 fps (always): "
                               "never goes back to 30 - the game slows down whenever the frame rate drops below 60.",
                               "30 fps: como no Switch (recomendado). 60 fps (experimental): o jogo mostra um quadro a cada "
                               "vsync e avança o mundo 1/60 s por quadro - mais fluido, mas pede uma CPU rápida: o jogo conta "
                               "quadros, não tempo, então abaixo de 60 fps tudo fica em câmera lenta. Quando este PC não "
-                              "segura 60, o ZA Recomp volta para 30 sozinho (escolha 60 de novo para tentar outra vez). "
+                              "segura 60, o runtime volta para 30 sozinho (escolha 60 de novo para tentar outra vez). "
                               "60 fps (sempre): nunca volta para 30 - o jogo fica lento quando a taxa cai abaixo de 60.")))
                 g_settings.fps60 = fr >= 1, g_settings.fps60_lock = fr == 2;
             if (g_settings.fps60 && g_fps60_fell_back)
@@ -951,9 +951,9 @@ static void tab_quit(float scale, bool in_game) {
         ask = 0;
     const char *lost = in_game ? TR("\n\nProgress since your last save is lost.", "\n\nO progresso desde o último save se perde.") : "";
     char d1[300], d2[300];
-    snprintf(d1, sizeof d1, "%s%s", TR("Leaves the game and goes back to the ZA Recomp start screen.",
-                                       "Sai do jogo e volta para a tela inicial do ZA Recomp."), lost);
-    snprintf(d2, sizeof d2, "%s%s", TR("Closes ZA Recomp.", "Fecha o ZA Recomp."), lost);
+    snprintf(d1, sizeof d1, "%s%s", TR("Returns to the Scarlet-Recomp start screen.",
+                                       "Volta para a tela inicial do Scarlet-Recomp."), lost);
+    snprintf(d2, sizeof d2, "%s%s", TR("Closes Scarlet-Recomp.", "Fecha o Scarlet-Recomp."), lost);
     opt_begin("##quit", scale);
     opt_section(TR("Quit", "Sair"));
     if (!ask) {
@@ -1002,6 +1002,17 @@ static void tab_game(void) {
                   "Change tabs: L / R (Q / E). Back: B (Esc).\nFullscreen: F11 or Alt+Enter.",
                   "Abrir / fechar: F1, Esc, o botão Home / Xbox / PlayStation do controle, ou Back + Start.\n"
                   "Trocar de aba: L / R (Q / E). Voltar: B (Esc).\nTela cheia: F11 ou Alt+Enter."));
+#ifdef SCARLET_AOT
+    // Visible attribution, limited to the Credits area rather than legacy branding.
+    opt_section(TR("Credits", "Créditos"));
+    opt_button(TR("Original F1 menu", "Menu F1 original"),
+               TR("Based on the F1 interface of PokeZ-ARecomp (Hexveil404) and LASRecomp (Peiikai). "
+                  "Scarlet-Recomp adapted the interface with its own visual identity. "
+                  "Dear ImGui by Omar Cornut and contributors.",
+                  "Baseado no menu F1 do PokeZ-ARecomp (Hexveil404) e do LASRecomp (Peiikai). "
+                  "Scarlet-Recomp adaptou a interface com identidade visual própria. "
+                  "Dear ImGui por Omar Cornut e colaboradores."));
+#endif
     opt_end();
 }
 
