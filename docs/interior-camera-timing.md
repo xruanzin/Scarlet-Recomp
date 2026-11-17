@@ -161,6 +161,24 @@ make -j4 SCARLET_AOT=1 B=build/window-full-20261112 build/window-full-20261112/s
 ```
 
 Keep a backup of `build/window-full-20261112/scarlet.exe` before linking.
+
+For a **one-command Windows workflow**, the repo now provides:
+`tools/scarlet/build_play_60_input_fix.ps1`. It checks the local binary,
+DLL and game files, backs up EXE/DLL/ID under ignored `build/`,
+invokes make for the EXE target only, restores the original EXE if make
+fails, removes scripted-input blockers and launches interactive Scarlet
+with `SCARLET_TARGET_FPS=60` and `SCARLET_NORMALIZE_LSTICK=1`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/scarlet/build_play_60_input_fix.ps1
+```
+
+Add `-BuildOnly` to compile without starting the game. The previous
+binary and game library remain available for rollback. This script has
+**not** been run in the user's Windows environment; do not infer success
+until the make output and runtime log confirm it.
+
+
 For validation, check `[scarlet-input] circular left-stick limit enabled`
 and run gameplay with `SCARLET_TARGET_FPS=60`, then compare straight
 and diagonal movement at an identical speed mode. A visual improvement
