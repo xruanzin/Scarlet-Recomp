@@ -36,19 +36,6 @@ static SDL_Gamepad *pad;
 static _Atomic int64_t sampling;
 static bool host_test;  // scripted runs must not vibrate the user's controller
 
-#ifdef SCARLET_AOT
-// Native title prompt remains visible until the game's first logical confirm.
-// The renderer can display the correct host icon without changing the game's
-// original title/save data or assuming the language of a translation mod.
-static _Atomic bool scarlet_title_confirmed;
-bool scarlet_title_prompt_pending(void) {
-    return !atomic_load(&scarlet_title_confirmed);
-}
-RT_ON_RESET(scarlet_title_prompt_reset) {
-    atomic_store(&scarlet_title_confirmed, false);
-}
-#endif
-
 // Guest IPC threads publish values; only the UI thread touches SDL's pad.
 // The lock also makes paired value snapshots consistent with permission/reset.
 static SDL_SpinLock rumble_lock;
@@ -936,15 +923,6 @@ static void fill_state(Cpu *c) {
         } else if (f > tap_frame) tap = 0;
     }
     uint64_t b = menu ? script_buttons : held | tap | script_buttons;
-#ifdef SCARLET_AOT
-    // The title screen enters the save on the Switch A logical action. Detect
-    // the action seen by the game (not an arbitrary physical controller button)
-    // so Xbox A, PlayStation Cross, and the configured keyboard key all close
-    // the native prompt in the same frame.
-    extern uint64_t g_program_id;
-    if (!menu && g_program_id == 0x0100a3d008c5c000ull && (b & (1ull << BTN_A)))
-        atomic_store(&scarlet_title_confirmed, true);
-#endif
     {   // injected Plus: held for ~10 presented frames (the game polls several times per frame)
         extern uint64_t renderer_present_count(void);
         static uint64_t until;
