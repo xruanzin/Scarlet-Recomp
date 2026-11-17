@@ -59,7 +59,7 @@ foreach ($spec in $specs) {
     $probeArgs = @{
         Fps = $fps; Seconds = $Seconds; ForceReexec = $true
         SaveSource = $save; Source = $Source; ShotAt = $shots
-        PositionFrames = ('{0},{1}' -f $start, $end)
+        PositionFrames = ('{0}:{1}' -f $start, $end)
     }
     $probeArgs['InputScript'] = $inputSpec
     Write-Host "Starting an isolated $fps FPS test with same saved scene..." -ForegroundColor Cyan
