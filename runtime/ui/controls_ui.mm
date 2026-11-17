@@ -399,10 +399,10 @@ extern "C" void controls_tab_draw(float scale) {
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
                    TR("Choose in-game button icons. With the four original face bindings, Xbox and PlayStation "
                       "also use native controls: A/Cross confirms, B/Circle cancels, X/Square and Y/Triangle. "
-                      "Your custom bindings remain unchanged. The title-screen confirm prompt follows this selection.",
+                      "Custom bindings stay unchanged. Native title button font is selected on the next game boot.",
                       "Escolha os ícones dos botões. Com os quatro botões originais, Xbox e PlayStation também "
                       "usam o controle nativo: A/Cruz confirma, B/Círculo cancela, X/Quadrado e Y/Triângulo. "
-                      "Seus mapeamentos personalizados são preservados. A tela inicial exibe o botão correspondente."));
+                      "Mapeamentos personalizados são preservados. A fonte de ícones do título muda no próximo início do jogo."));
 #else
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
                    TR("The button icons the game shows. Auto: the connected controller's (the keyboard's with none). "
