@@ -21,7 +21,7 @@
 
 #include "cpu.h"
 #include "cache_sha256.h"
-#include "scarlet_camera_script_patch.h"
+#include "hle/scarlet_camera_script_patch.h"
 
 extern "C" int g_scarlet_target_fps;
 
