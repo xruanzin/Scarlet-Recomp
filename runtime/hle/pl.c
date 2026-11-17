@@ -218,7 +218,14 @@ static int load_one_checked(const char *path, Font *ft, bool check) {
 }
 
 static int g_fonts_loaded;
-RT_ON_RESET(pl_reset) { g_fonts_loaded = 0; memset(fonts, 0, sizeof fonts); }  // (they were in the HLE heap)
+static int g_pl_prompt_done;
+static const char *g_pl_prompt_value;
+RT_ON_RESET(pl_reset) {
+    g_fonts_loaded = 0;
+    g_pl_prompt_done = 0;
+    g_pl_prompt_value = NULL;
+    memset(fonts, 0, sizeof fonts);
+}  // (they were in the HLE heap)
 
 const char *pl_prompt_set(void);  // (below: the button prompt set)
 
@@ -314,10 +321,8 @@ static void load_fonts(void) {
 // font (fonts/nintendo_ext_003_<set>.ttf: tools/za/keyboard_font.py, xbox_font.py) and the game's own UI icons
 // relabelled (textures/prompts/<set>: tools/za/prompt_textures.py, runtime/nvn/vulkan/textures.c).
 const char *pl_prompt_set(void) {
-    static int done;
-    static const char *set;
-    if (done) return set;
-    done = 1;
+    if (g_pl_prompt_done) return g_pl_prompt_value;
+    g_pl_prompt_done = 1;
     // (bind_label_family, not input_pad_family: runtime/services/fs.c asks this before runtime/hle/input.c has opened
     // the controller - it asked SDL, which knows the pad's type already; "auto" used to come out as Nintendo's)
     extern int bind_label_family(void);
@@ -330,8 +335,9 @@ const char *pl_prompt_set(void) {
     bool ps = g_settings.prompts == PROMPTS_PLAYSTATION || (g_settings.prompts == PROMPTS_AUTO && fam == 2);
     bool keys = g_settings.prompts == PROMPTS_KEYBOARD || (g_settings.prompts == PROMPTS_AUTO && !pad && !deck);
     (void)g_bind_pad;  // (each set is made for the bindings: runtime/ui/launcher.mm remakes them when those change)
-    set = keys ? "keyboard" : deck ? "steamdeck" : xbox ? "xbox" : ps ? "playstation" : pad ? "nintendo" : NULL;
-    return set;
+    g_pl_prompt_value = keys ? "keyboard" : deck ? "steamdeck" : xbox ? "xbox" :
+                        ps ? "playstation" : pad ? "nintendo" : NULL;
+    return g_pl_prompt_value;
 }
 
 // SharedFontType: 0 Standard, 1 ChineseSimple, 2 ChineseSimpleExt, 3 ChineseTraditional, 4 Korean, 5 NintendoExt
