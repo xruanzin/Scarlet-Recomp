@@ -28,13 +28,13 @@ extern "C" int g_scarlet_target_fps;
 extern "C" void scarlet_lua_camera_before_load(Cpu *c) {
 #ifdef SCARLET_AOT
     if (g_scarlet_target_fps != 60 || !c) return;
-    static int enable = -1;
-    if (enable == -1) {
+    static const bool enable = []() {
         const char *setting = getenv("SCARLET_INDOOR_CAMERA_60");
-        enable = !(setting && !strcmp(setting, "0"));
+        const bool on = !(setting && !strcmp(setting, "0"));
         fprintf(stderr, "[scarlet-camera] main.blua targeted 60 Hz script step %s\n",
-                enable ? "enabled" : "disabled");
-    }
+                on ? "enabled" : "disabled");
+        return on;
+    }();
     if (!enable) return;
 
     /* luaL_loadbufferx(L, const char *buff, size_t size, const char *name, const char *mode)
