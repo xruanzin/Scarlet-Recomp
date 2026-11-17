@@ -70,7 +70,7 @@ $pages = [int][Math]::Ceiling($picks.Count / [double]$perPage)
 $font = New-Object System.Drawing.Font('Consolas', 10)
 try {
     for ($page = 0; $page -lt $pages; $page++) {
-        $sheet = New-Object System.Drawing.Bitmap ($columns * $cellW), (7 * $cellH)
+        $sheet = New-Object System.Drawing.Bitmap -ArgumentList @([int]($columns * $cellW), [int](7 * $cellH))
         $g = [System.Drawing.Graphics]::FromImage($sheet)
         $g.Clear([System.Drawing.Color]::FromArgb(18,21,29))
         try {
