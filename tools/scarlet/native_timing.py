@@ -74,4 +74,8 @@ def patches(module):
                     f'scarlet_timing_observe(c, 0x{site:x}ull); '
                     'memcpy(&c->x[8], (const void *)(uintptr_t)c->x[0], 8); }')
         result[module.base + site] = emit
+    # Targeted 60-Hz indoor-camera Lua fix, with independent NSO BL guards.
+    # A mismatch aborts generation; do not fall back to guessed offsets.
+    from scarlet.lua_camera_native import patches as lua_camera_patches
+    result.update(lua_camera_patches(module))
     return result
