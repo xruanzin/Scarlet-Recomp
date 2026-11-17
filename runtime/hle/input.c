@@ -18,6 +18,9 @@
 #include "../rumble.h"
 #include "../led.h"
 #include "../ui/menu.h"
+#ifdef SCARLET_AOT
+#include "../scarlet_stick_normalize.h"
+#endif
 
 enum {
     BTN_A = 0, BTN_B, BTN_X, BTN_Y, BTN_LSTICK, BTN_RSTICK, BTN_L, BTN_R, BTN_ZL, BTN_ZR, BTN_PLUS, BTN_MINUS,
@@ -918,6 +921,22 @@ static void fill_state(Cpu *c) {
         if (renderer_present_count() < until) b |= 1ull << BTN_PLUS;
     }
     int32_t lx = clamp_axis((menu ? 0 : key_lx + pad_lx) + script_lx), ly = clamp_axis((menu ? 0 : key_ly + pad_ly) + script_ly);
+#ifdef SCARLET_AOT
+    /* Scarlet keyboard/controller/script left-stick vectors are combined
+     * component-wise. WASD diagonal used to be sqrt(2) times a full stick.
+     * Keep this isolated from other games and offer an A/B opt-out.
+     * D-pad movement already has its own diagonal-normalized mapping. */
+    {
+        static int normalize = -1;
+        if (normalize < 0) {
+            const char *option = getenv("SCARLET_NORMALIZE_LSTICK");
+            normalize = !option || strcmp(option, "0") != 0;
+            LOG("[scarlet-input] circular left-stick limit %s\n",
+                normalize ? "enabled" : "disabled");
+        }
+        if (normalize) scarlet_normalize_left_stick(&lx, &ly);
+    }
+#endif
     int32_t mrx, mry;
     mouse_stick(&mrx, &mry);
     int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
