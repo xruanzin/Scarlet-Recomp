@@ -7,6 +7,7 @@ files are modified. Pure Python standard library; works offline on Windows.
 The game must use NintendoExt PUA glyphs for this replacement to take effect.
 """
 import argparse
+import math
 import re
 import struct
 from pathlib import Path
@@ -166,29 +167,171 @@ def keyboard_names(ini):
                     mapping[m.group(1).lower()] = v
     return "".join(mapping[x] for x in "abxy")
 
+
+def icon_ring(cx, cy, outer, inner, n=40):
+    a = [(round(cx+outer*math.cos(2*math.pi*i/n)),round(cy+outer*math.sin(2*math.pi*i/n))) for i in range(n)]
+    b = [(round(cx+inner*math.cos(-2*math.pi*i/n)),round(cy+inner*math.sin(-2*math.pi*i/n))) for i in range(n)]
+    return [a,b]
+
+def icon_stroke(x1,y1,x2,y2,t=85):
+    length = math.hypot(x2-x1,y2-y1)
+    if not length: return []
+    nx = -((y2-y1)/length)*(t/2)
+    ny = ((x2-x1)/length)*(t/2)
+    return [(round(x1+nx),round(y1+ny)),(round(x2+nx),round(y2+ny)),
+            (round(x2-nx),round(y2-ny)),(round(x1-nx),round(y1-ny))]
+
+def icon_letter(letter):
+    L,R,T,B,M,C = 630,1400,1480,610,1035,1015
+    strokes = {
+        "A":[(L,B,C,T),(C,T,R,B),(730,950,1310,950)],
+        "B":[(L,B,L,T),(L,T,1180,T),(1180,T,R,1300),(R,1300,1180,M),
+             (1180,M,L,M),(1180,M,R,830),(R,830,1180,B),(1180,B,L,B)],
+        "X":[(L,B,R,T),(L,T,R,B)],
+        "Y":[(L,T,C,M),(R,T,C,M),(C,M,C,B)],
+        "K":[(L,B,L,T),(L,M,R,T),(L,M,R,B)],
+        "J":[(R,T,R,780),(R,780,1150,B),(1150,B,L,750)],
+        "L":[(L,T,L,B),(L,B,R,B)],
+        "I":[(L,T,R,T),(C,T,C,B),(L,B,R,B)],
+    }
+    return [icon_stroke(*coords) for coords in strokes.get(letter, strokes["K"])]
+
+def icon_glyph(style, letter, upem):
+    cx=cy=1024
+    if style in ("xbox","steamdeck"):
+        parts = icon_ring(cx,cy,820,745)+icon_letter(letter)
+    elif style == "keyboard":
+        parts = [[(260,260),(1790,260),(1790,1790),(260,1790)],
+                 [(340,340),(340,1710),(1710,1710),(1710,340)]]+icon_letter(letter)
+    elif letter == "×":
+        parts = [icon_stroke(480,480,1550,1550,135),icon_stroke(480,1550,1550,480,135)]
+    elif letter == "○":
+        parts = icon_ring(cx,cy,680,570)
+    elif letter == "□":
+        parts = [[(365,365),(1683,365),(1683,1683),(365,1683)],
+                 [(470,470),(470,1578),(1578,1578),(1578,470)]]
+    elif letter == "△":
+        parts = [[(1024,1770),(270,380),(1778,380)],
+                 [(1024,1510),(1530,500),(510,500)]]
+    else:
+        raise ValueError("Unsupported native icon "+letter)
+    contours = [[(round(x*upem/2048),round(y*upem/2048)) for x,y in poly] for poly in parts]
+    points = [p for contour in contours for p in contour]
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    data = struct.pack(">hhhhh",len(contours),min(xs),min(ys),max(xs),max(ys))
+    end = -1
+    for poly in contours:
+        end += len(poly)
+        data += b16(end)
+    data += bytes(2)+bytes([1]*len(points)) # 0 instructions; all on-curve
+    prev=0
+    for px,py in points:
+        data += struct.pack(">h",px-prev)
+        prev=px
+    prev=0
+    for px,py in points:
+        data += struct.pack(">h",py-prev)
+        prev=py
+    return data+bytes(-len(data)%2)
+
+def native_base(repo):
+    # Preserve every existing NintendoExt icon from a user's own dump; only
+    # A/B/X/Y are added/replaced. DejaVu is a fallback if no dump was supplied.
+    raw = repo/"fonts/nintendo_ext_003.bfttf"
+    plain = repo/"fonts/nintendo_ext_003.ttf"
+    if plain.is_file():
+        data = plain.read_bytes()
+        print("[scarlet-native-title] using user's unmodified NintendoExt TTF")
+        return data
+    if raw.is_file():
+        blob = raw.read_bytes()
+        key, magic = 0x49621806, 0x7f9a0218
+        if len(blob) >= 12:
+            w0,w1=struct.unpack_from("<II",blob)
+            if (w0^key)==magic:
+                size=w1^key
+                decode=lambda w: (w^key).to_bytes(4,"big")
+            else:
+                swapped=int.from_bytes(key.to_bytes(4,"little"),"big")
+                smagic=int.from_bytes(magic.to_bytes(4,"little"),"big")
+                if (w0^swapped)==smagic:
+                    size=int.from_bytes((w1^swapped).to_bytes(4,"little"),"big")
+                    decode=lambda w: (w^swapped).to_bytes(4,"little")
+                else:
+                    size=0
+            if 12<=len(blob) and 4<=size<=len(blob)-8:
+                data=b"".join(decode(u32le) for (u32le,) in
+                              struct.iter_unpack("<I",blob[8:8+((size+3)&~3)]))[:size]
+                if data[:4] in (bytes((0,1,0,0)),b"true"):
+                    print("[scarlet-native-title] using user's NintendoExt BFTTF")
+                    return data
+        print("[scarlet-native-title] invalid BFTTF; using bundled OFL font")
+    print("[scarlet-native-title] no console NintendoExt dump; using bundled OFL font")
+    return (repo/"third_party/fonts/DejaVu/DejaVuSans.ttf").read_bytes()
+
+def append_icons(tbls, style, chars):
+    # Keep the original cmap and ALL non-face icons. Append four new vector
+    # glyphs to the source TrueType font, then route the eight face codepoints
+    # (outline and filled) to those native symbols.
+    n=u16(tbls["maxp"],4)
+    head=bytearray(tbls["head"])
+    loc_format=struct.unpack_from(">h",head,50)[0]
+    loca=tbls["loca"]
+    offsets=[u32(loca,4*i) if loc_format else 2*u16(loca,2*i) for i in range(n+1)]
+    glyf=bytearray(tbls["glyf"][:offsets[-1]])
+    newoffsets=list(offsets)
+    upem=u16(head,18)
+    for letter in chars:
+        glyf.extend(icon_glyph(style,letter,upem))
+        glyf.extend(bytes(-len(glyf)%4))
+        newoffsets.append(len(glyf))
+    new=dict(tbls)
+    head[50:52]=b16(1)
+    new["head"]=bytes(head)
+    new["glyf"]=bytes(glyf)
+    new["loca"]=b"".join(b32(v) for v in newoffsets)
+    mx=bytearray(tbls["maxp"])
+    mx[4:6]=b16(n+4)
+    new["maxp"]=bytes(mx)
+    hh=bytearray(tbls["hhea"])
+    nm=u16(hh,34)
+    hh[34:36]=b16(n+4)
+    new["hhea"]=bytes(hh)
+    hmtx=tbls["hmtx"]
+    lastadvance=u16(hmtx,4*(nm-1))
+    metrics=bytearray()
+    for i in range(n):
+        adv,lsb=struct.unpack_from(">Hh",hmtx,4*i) if i<nm else (
+            lastadvance,struct.unpack_from(">h",hmtx,4*nm+2*(i-nm))[0])
+        metrics.extend(struct.pack(">Hh",adv,lsb))
+    for letter in chars:
+        metrics.extend(struct.pack(">Hh",upem,0))
+    new["hmtx"]=bytes(metrics)
+    post=tbls.get("post")
+    if post and u32(post,0)==0x00020000:
+        new["post"]=bytes((0,3,0,0))+post[4:32]
+    return new,n
+
 def build(repo, ini):
-    font = (repo/"third_party/fonts/DejaVu/DejaVuSans.ttf").read_bytes()
-    tables = font_tables(font)
-    default = read_cmap(tables["cmap"])
+    font = native_base(repo)
+    tbls = font_tables(font)
+    default = read_cmap(tbls["cmap"])
     names = {"xbox":"ABXY","playstation":"×○□△","steamdeck":"ABXY","keyboard":keyboard_names(ini)}
     dest = repo/"fonts"
     dest.mkdir(exist_ok=True)
     for style, chars in names.items():
+        changed, first_new_id = append_icons(tbls,style,chars)
         cmap = dict(default)
-        for i, char in enumerate(chars):
-            glyph = default.get(ord(char))
-            if not glyph:
-                raise ValueError("The bundled font lacks glyph for "+repr(char))
-            # Outline and filled PUA icons: Switch A/B/X/Y in NintendoExt.
-            cmap[0xe0a0+i] = glyph
-            cmap[0xe0e0+i] = glyph
-        changed = dict(tables)
+        for i in range(4):
+            cmap[0xe0a0+i] = first_new_id+i
+            cmap[0xe0e0+i] = first_new_id+i
         changed["cmap"] = create_cmap(cmap)
-        data = rebuild_font(font, changed)
+        data = rebuild_font(font,changed)
         target = dest/("nintendo_ext_003_scarlet_"+style+".ttf")
         if not target.exists() or target.read_bytes()!=data:
             target.write_bytes(data)
-        print("[scarlet-native-title] "+style+" glyphs="+repr(chars)+" "+str(target))
+        print("[scarlet-native-title] "+style+" native glyphs="+repr(chars)+" "+str(target))
 
 def main():
     parser = argparse.ArgumentParser()
