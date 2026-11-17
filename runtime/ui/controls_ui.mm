@@ -42,17 +42,18 @@ static int cat_rows(int cat, bool pad, Bind *out) {
     auto add = [&](int slot, const char *label, const char *section = NULL) { out[n++] = {slot, label, section}; };
     const char *up = TR("Up", "Cima"), *down = TR("Down", "Baixo"), *left = TR("Left", "Esquerda"),
                *right = TR("Right", "Direita");
-    // BIND_* slots keep their original logical meaning; change only the labels
-    // for the icon family selected in F1. Never move saved controller bindings.
+    // The four BIND_* slots are Switch logical inputs, but the controller
+    // default follows the selected Xbox/PlayStation convention in the game.
+    // Display the effective host label here, not the old Nintendo position.
     const int prompts = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
     const bool ps = pad && prompts == PROMPTS_PLAYSTATION;
     const bool xbox = pad && (prompts == PROMPTS_XBOX || prompts == PROMPTS_STEAMDECK);
     switch (cat) {
     case CAT_BUTTONS:
-        add(BIND_A, ps ? "○" : xbox ? "B" : "A"),
-            add(BIND_B, ps ? "×" : xbox ? "A" : "B"),
-            add(BIND_X, ps ? "△" : xbox ? "Y" : "X"),
-            add(BIND_Y, ps ? "□" : xbox ? "X" : "Y"),
+        add(BIND_A, ps ? "×" : xbox ? "A" : "A"),
+            add(BIND_B, ps ? "○" : xbox ? "B" : "B"),
+            add(BIND_X, ps ? "□" : xbox ? "X" : "X"),
+            add(BIND_Y, ps ? "△" : xbox ? "Y" : "Y"),
             add(BIND_PLUS, ps || xbox ? "Start" : TR("Plus", "Mais")),
             add(BIND_MINUS, ps || xbox ? "Select" : TR("Minus", "Menos"));
         break;
@@ -217,7 +218,7 @@ static void watch_results(int fam, char *msg, size_t cap) {
     msg[0] = 0;
     if (kind == 2)
         snprintf(msg, cap, "%s moved to %s (swapped).", bind_input_name(rother),
-                 rdev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[rother], fam) : bind_key_label(g_bind_key[rother]));
+                 rdev == BIND_DEV_PAD ? bind_pad_label(bind_pad_effective(rother), fam) : bind_key_label(g_bind_key[rother]));
     if (kind == 1 || kind == 2 || kind == 5) {
         settings_save();
         launcher_prompts_refresh();  // (the game's button icons drawn again for the new bindings: runtime/ui/launcher.mm)
@@ -297,7 +298,7 @@ static void configure_inputs(float scale) {
             char val[64];
             if (waiting) snprintf(val, sizeof val, "%s...  %d", g_dev_pad ? TR("Press a button", "Aperte um botão")
                                                                           : TR("Press a key", "Aperte uma tecla"), (ms + 999) / 1000);
-            else snprintf(val, sizeof val, "%s", g_dev_pad ? bind_pad_label(g_bind_pad[b.slot], fam) : bind_key_label(g_bind_key[b.slot]));
+            else snprintf(val, sizeof val, "%s", g_dev_pad ? bind_pad_label(bind_pad_effective(b.slot), fam) : bind_key_label(g_bind_key[b.slot]));
             // the same button / key on two inputs (a hand-edited larecomp.ini): red
             const int16_t *t = g_dev_pad ? g_bind_pad : g_bind_key;
             bool dup = false;
