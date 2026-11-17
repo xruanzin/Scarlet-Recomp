@@ -829,7 +829,7 @@ static const char *scarlet_key_label(int slot, char out[12]) {
 
 static const char *scarlet_pad_label(int slot, int style, char out[12]) {
     if (slot < 0) return style == 2 ? "R3" : "RS";
-    const char *src = bind_pad_label(g_bind_pad[slot], style == 2 ? 2 : 1);
+    const char *src = bind_pad_label(bind_pad_effective(slot), style == 2 ? 2 : 1);
     // F1 shows actual PlayStation symbols; these internal shape tokens tell
     // the rasterizer to draw geometry rather than the word "Square".
     if (style == 2) {
