@@ -118,6 +118,38 @@ To inspect the previously decoded private Lua file *without modifying it*:
 It checks the exact decoded SHA-256 and recorded bytecode structure. If
 the input differs, it stops instead of guessing offsets.
 
+## Controller-specific argument mapping
+
+The supplied Lua prototype dump gives a more specific opportunity than
+changing the shared interpolation helper:
+
+`0.17567:31–37` calls the verified `0.30688` method with:
+
+1. `self[42]` as the current three-component position.
+2. A locally computed three-component target vector.
+3. `self[41]` as the smoothing blend coefficient.
+4. The controller method's second parameter as the integer step count.
+
+If that count is zero, `0.30688` does not blend any position. At 60 FPS,
+a scheduler that only advances once per 30-Hz tick **could** cause repeated
+camera positions followed by a jump. This remains a hypothesis; no timed
+indoor view-matrix sequence has yet demonstrated it.
+
+The separate `1/30` function `0.17747` is registered in a *different
+hashed class*, `C51C789C764D66E76`. The present files do not prove that
+its step count is the argument supplied to `0.17567`. A direct linkage
+must be traced instead of assuming these two schedulers are the same.
+
+`tools/scarlet/trace_interior_camera_state.py` performs read-only Lua
+dataflow checks of these four arguments and searches class methods for
+writes to `self[41]` or `self[42]`. Its results can narrow the
+controller-only modification point, avoiding changes to the shared
+`0.30688` helper. No active camera patch is added in this stage.
+
+```powershell
+& .\.venv-scarlet-aot-fixed\Scripts\python.exe tools/scarlet/trace_interior_camera_state.py build/scarlet-script-analysis/21977-be21e65463b9a98f.blua > build/scarlet-script-analysis/interior-camera-state.json
+```
+
 ## Integration criteria before a native camera fix
 
 1. Reproduce interior jitter with a **private save starting inside a house**
