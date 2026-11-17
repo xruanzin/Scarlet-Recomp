@@ -397,12 +397,12 @@ extern "C" void controls_tab_draw(float scale) {
         snprintf(autol, sizeof autol, "Auto (%s)", names[bind_prompts_auto()]);
 #ifdef SCARLET_AOT
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
-                   TR("Choose the look of the in-game button icons, using your existing bindings. "
-                      "Xbox, PlayStation and keyboard/mouse glyphs appear as matching UI textures are reloaded. "
-                      "Unrecognised game art stays unchanged.",
-                      "Escolha o visual dos botões no jogo usando os mapeamentos atuais. "
-                      "Os ícones de Xbox, PlayStation e teclado/mouse mudam quando as texturas reconhecidas são recarregadas. "
-                      "Imagens não reconhecidas permanecem originais."));
+                   TR("Choose in-game button icons. With the four original face bindings, Xbox and PlayStation "
+                      "also use native controls: A/Cross confirms, B/Circle cancels, X/Square and Y/Triangle. "
+                      "Your custom bindings remain unchanged. The title-screen confirm prompt follows this selection.",
+                      "Escolha os ícones dos botões. Com os quatro botões originais, Xbox e PlayStation também "
+                      "usam o controle nativo: A/Cruz confirma, B/Círculo cancela, X/Quadrado e Y/Triângulo. "
+                      "Seus mapeamentos personalizados são preservados. A tela inicial exibe o botão correspondente."));
 #else
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
                    TR("The button icons the game shows. Auto: the connected controller's (the keyboard's with none). "
@@ -411,11 +411,19 @@ extern "C" void controls_tab_draw(float scale) {
                       "controle). Vale a partir do próximo início."));
 #endif
     }
+#ifdef SCARLET_AOT
+    opt_toggle(TR("Battle moves by position", "Golpes por posição"), &g_settings.battle_abxy_position, false,
+               TR("Only for Nintendo layout: hold ZL to use face buttons by physical position. "
+                  "Xbox and PlayStation always keep their native A/Cross confirm layout, including in battle.",
+                  "Somente no layout Nintendo: segure ZL para usar os botões pela posição. "
+                  "Xbox e PlayStation mantêm sempre o layout nativo com A/Cruz para confirmar, inclusive em batalha."));
+#else
     opt_toggle(TR("Battle moves by position", "Golpes por posição"), &g_settings.battle_abxy_position, false,
                TR("While ZL is held, the controller's A / B / X / Y go by position (the Switch's A on the right), so each "
                   "move is on the button where the game draws it. The rest of the game keeps your bindings.",
                   "Com ZL segurado, o A / B / X / Y do controle valem pela posição (o A do Switch fica à direita), então cada "
                   "golpe fica no botão onde o jogo desenha ele. O resto do jogo mantém os seus comandos."));
+#endif
     {
         const char *const names[] = {TR("Game layout", "Layout do jogo"), TR("Controller convention", "Padrão do controle")};
         opt_choice(TR("Confirm button", "Botão de confirmar"), &g_settings.menu_confirm, names, 2, MENU_CONFIRM_CONTROLLER,
