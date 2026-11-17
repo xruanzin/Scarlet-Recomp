@@ -42,12 +42,26 @@ static int cat_rows(int cat, bool pad, Bind *out) {
     auto add = [&](int slot, const char *label, const char *section = NULL) { out[n++] = {slot, label, section}; };
     const char *up = TR("Up", "Cima"), *down = TR("Down", "Baixo"), *left = TR("Left", "Esquerda"),
                *right = TR("Right", "Direita");
+    // BIND_* slots keep their original logical meaning; change only the labels
+    // for the icon family selected in F1. Never move saved controller bindings.
+    const int prompts = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
+    const bool ps = pad && prompts == PROMPTS_PLAYSTATION;
+    const bool xbox = pad && (prompts == PROMPTS_XBOX || prompts == PROMPTS_STEAMDECK);
     switch (cat) {
     case CAT_BUTTONS:
-        add(BIND_A, "A"), add(BIND_B, "B"), add(BIND_X, "X"), add(BIND_Y, "Y"), add(BIND_PLUS, TR("Plus", "Mais")),
-            add(BIND_MINUS, TR("Minus", "Menos"));
+        add(BIND_A, ps ? "○" : xbox ? "B" : "A"),
+            add(BIND_B, ps ? "×" : xbox ? "A" : "B"),
+            add(BIND_X, ps ? "△" : xbox ? "Y" : "X"),
+            add(BIND_Y, ps ? "□" : xbox ? "X" : "Y"),
+            add(BIND_PLUS, ps || xbox ? "Start" : TR("Plus", "Mais")),
+            add(BIND_MINUS, ps || xbox ? "Select" : TR("Minus", "Menos"));
         break;
-    case CAT_TRIGGERS: add(BIND_L, "L"), add(BIND_R, "R"), add(BIND_ZL, "ZL"), add(BIND_ZR, "ZR"); break;
+    case CAT_TRIGGERS:
+        add(BIND_L, ps ? "L1" : xbox ? "LB" : "L"),
+            add(BIND_R, ps ? "R1" : xbox ? "RB" : "R"),
+            add(BIND_ZL, ps ? "L2" : xbox ? "LT" : "ZL"),
+            add(BIND_ZR, ps ? "R2" : xbox ? "RT" : "ZR");
+        break;
     case CAT_STICKS:  // (a controller's sticks stay its sticks: only their presses are buttons)
         add(BIND_LSTICK, TR("Press", "Apertar"), TR("Left stick", "Analógico esquerdo"));
         if (!pad) add(BIND_LS_UP, up), add(BIND_LS_DOWN, down), add(BIND_LS_LEFT, left), add(BIND_LS_RIGHT, right);
@@ -219,7 +233,10 @@ static void configure_inputs(float scale) {
         if (devs[i].pad == g_dev_pad && (!g_dev_pad || devs[i].id == g_dev_id)) di = i;
     if (di < 0) di = g_dev_pad ? 0 : nd - 1;  // (that controller is gone: the first one)
     g_dev_pad = devs[di].pad, g_dev_id = devs[di].id;
-    const int dev = g_dev_pad ? BIND_DEV_PAD : BIND_DEV_KEY, fam = devs[di].fam;
+    const int dev = g_dev_pad ? BIND_DEV_PAD : BIND_DEV_KEY;
+    const int prompt_style = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
+    // Match the selected icon family, not necessarily SDL's hardware name.
+    const int fam = prompt_style == PROMPTS_PLAYSTATION ? 2 : prompt_style == PROMPTS_XBOX ? 1 : devs[di].fam;
 
     int cd, cs, ms;
     bind_capture_active(&cd, &cs, &ms);
