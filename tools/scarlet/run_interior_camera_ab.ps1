@@ -3,8 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$SaveSource,
     [string]$Source = 'D:\Scarlet-Window-Playtest-20261112',
     [ValidateRange(50,300)][int]$Seconds = 85,
-    [ValidateRange(5,25)][int]$ShotFrames = 16,
-    [switch]$NoMovement
+    [ValidateRange(5,25)][int]$ShotFrames = 16
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -56,15 +55,15 @@ foreach ($spec in $specs) {
     $start = [int]$spec.Start
     $end = $start + $ShotFrames - 1
     $shots = ($start..$end) -join ','
-    $inputSpec = if ($NoMovement) { '' } else { ('{0}:STICK_UP:{1}' -f $start, $spec.Move) }
-    $args = @{
+    $inputSpec = ('{0}:STICK_UP:{1}' -f $start, $spec.Move)
+    $probeArgs = @{
         Fps = $fps; Seconds = $Seconds; ForceReexec = $true
         SaveSource = $save; Source = $Source; ShotAt = $shots
         PositionFrames = ('{0},{1}' -f $start, $end)
     }
-    if ($inputSpec) { $args['InputScript'] = $inputSpec }
+    $probeArgs['InputScript'] = $inputSpec
     Write-Host "Starting an isolated $fps FPS test with same saved scene..." -ForegroundColor Cyan
-    & $runner @args
+    & $runner @probeArgs
     if ($LASTEXITCODE -ne 0) {
         throw "$fps FPS probe stopped with exit code $LASTEXITCODE. Check build/native-timing-runs."
     }
