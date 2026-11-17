@@ -41,8 +41,8 @@ def verify(document):
             raise ValueError(f'Wrong namespace/member at root pc {addr}')
     if ins[pc].get('child_path') != INTERPOLATOR:
         raise ValueError('Root closure does not register recorded interpolator')
-    if not (ins[pc-3]['a'] == ins[pc-2]['b'] == ins[pc-2]['a']
-            == ins[pc+1]['a']
+    if not (ins[pc-3]['a'] == ins[pc-2]['c']
+            and ins[pc-2]['a'] == ins[pc-2]['b'] == ins[pc+1]['a']
             and ins[pc-1]['a'] == ins[pc+1]['b']
             and ins[pc]['a'] == ins[pc+1]['c']):
         raise ValueError('Root registration register dataflow differs')
