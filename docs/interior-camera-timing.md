@@ -322,6 +322,102 @@ hypothesis. It is not an FPS patch. Do not publish saves, ROMs,
 keys, copyrighted Lua scripts or userdata; share only requested
 diagnostic summaries/screenshots after checking for personal data.
 
+## KarPur-inspired native 60-FPS camera experiment (2026-11-17)
+
+**Implemented on the experimental branch; not yet proven by Scarlet indoor gameplay.**
+
+KarPur's Violet `runtime/data_patch.c` replaces fixed `double 1/30`
+script steps with `1/fps` as compressed game files are loaded
+(`TOTK_SCRIPT_STEP`). Its maintainer reports that the 13 occurrences
+changed to `1/60` improved indoor walking at 60 FPS. KarPur uses a
+separate hooked Lua load site (`runtime/lua_mod.c`) to execute Lua
+after the main chunk. We use its **in-memory script-load technique**,
+but deliberately avoid replacing all 13 steps.
+
+The Scarlet implementation installs a **single native AOT hook** before
+the original `luaL_loadbufferx` call for the main Lua script. The hook:
+
+- Is compiled only with `SCARLET_AOT`, runs only when
+  `g_scarlet_target_fps == 60`, and is enabled by default
+  (`SCARLET_INDOOR_CAMERA_60=0` disables it without recompiling).
+- Checks the decoded `main.blua`'s **full original SHA-256**
+  `c1a4f4e2625912cf0b739a642a79ba3357df0557a544b92da22a6cb139de2815`,
+  then checks original value `1/30` at offset `0x7efc05`.
+- Makes an **in-memory copy** of that verified Lua buffer and writes
+  exactly 8 bytes, the `double` constant inside prototype
+  `0.17518`, changing `1/30` to `1/60`.
+- Passes the private copy to the original Lua interpreter for that load;
+  disk files, NSP/XCI, save data and the global interpolator
+  `0.30688` are not touched. A new game process is needed to
+  toggle the setting because Lua caches compiled script constants.
+- Uses **two exact ARM64 BL target guards** before generating the
+  hook: the presumed call to `luaL_loadbufferx` at
+  `main+0xe37f70` and the subsequent `lua_pcallk` at
+  `main+0xe37f94`. These addresses come from KarPur Violet and
+  **must independently match the Scarlet 4.0.0 main NSO**; a
+  mismatch stops generation without changing the old EXE/DLL.
+
+This should remove alternate 0/1 camera step counts **if** the
+`0.17518 -> 0.17567` dynamic call path actually runs for the indoor
+camera. The static Lua evidence identifies the method lookup but
+does not prove its live receiver. Changing a 30-Hz scheduler to 60-Hz
+may also alter other consumers' cadence, smoothing response or
+animations. Actual camera and animation behavior must be compared
+with the patch toggled on and off.
+
+Source changes:
+`tools/scarlet/lua_camera_native.py`,
+`tools/scarlet/native_timing.py`,
+`runtime/scarlet_camera_script_patch.cpp`,
+`runtime/hle/scarlet_camera_script_patch.h`,
+`tools/scarlet/test_lua_camera_native.py`,
+`tools/scarlet/test_camera_script_patch.c`.
+The user should **not** run the old read-only A/B script to test manual
+camera controls; it deliberately blocks personal input.
+
+On the user's Windows checkout (with the game closed), update this
+branch and invoke the new safe wrapper:
+
+```powershell
+cd "D:\Scarlet-Recomp-Window-Test"
+git fetch origin "refs/heads/work/scarlet-indoor-camera-20261117:refs/remotes/origin/work/scarlet-indoor-camera-20261117"
+git merge --ff-only "refs/remotes/origin/work/scarlet-indoor-camera-20261117"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/scarlet/build_play_60_camera_patch.ps1
+```
+
+The wrapper tests the C/Python guards, chooses an existing local
+Scarlet 4.0.0 generated source directory, backs up
+`scarlet.exe`, `lasgame.dll` and `lasgame.dll.id`, regenerates
+the AOT main for the verified build and incrementally rebuilds the
+EXE/DLL, then launches interactive 60 FPS. On a failed build it
+restores the prior EXE/DLL/ID. The game content and Lua source are
+neither pushed to GitHub nor modified on disk.
+
+**Expected logs** after a successful build and actual Lua load:
+
+```text
+[scarlet-fps] requested 60 FPS
+[scarlet-camera] main.blua targeted 60 Hz script step enabled
+[scarlet-camera] applied in-memory camera script step 1/30 -> 1/60 at main.blua +0x7efc05; original SHA verified
+```
+
+If the first camera message appears but the `applied` message does not,
+the Lua buffer may not match the expected chunk, or the call site may
+not have executed; **the game has not been patched**. If the loader's
+BL guard fails, the AOT generation aborts safely, and the wrapper
+restores the previous playable build. Never interpret a successful
+60 FPS request alone as confirmation of this script patch.
+
+For a control test after a successful build, exit Scarlet and run it
+again with `SCARLET_INDOOR_CAMERA_60=0`, keeping
+`SCARLET_TARGET_FPS=60`; check movement, camera and animation
+timing from the **same indoor save**. Both modes must be tested
+before claiming a permanent fix.
+
+Upstream reference:
+https://github.com/Grunttanamo/KarPur/blob/main/runtime/data_patch.c
+and https://github.com/Grunttanamo/KarPur/blob/main/runtime/lua_mod.c
+
 ## Integration criteria before a native camera fix
 
 1. Reproduce interior jitter with a **private save starting inside a house**
