@@ -19,7 +19,7 @@
 #include "../led.h"
 #include "../ui/menu.h"
 #ifdef SCARLET_AOT
-#include "../scarlet_stick_normalize.h"
+#include "scarlet_stick_normalize.h"
 #endif
 
 enum {
