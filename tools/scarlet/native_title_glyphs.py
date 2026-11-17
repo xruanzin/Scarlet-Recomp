@@ -293,9 +293,15 @@ def append_icons(tbls, style, chars):
     new["loca"]=b"".join(b32(v) for v in newoffsets)
     mx=bytearray(tbls["maxp"])
     mx[4:6]=b16(n+4)
+    if len(mx)>=10 and u32(mx,0)==0x00010000:
+        # The new Xbox B has 10 contours and the circles have 80 points.
+        # Older console icon fonts can advertise fewer than this in maxp.
+        mx[6:8]=b16(max(u16(mx,6),128))
+        mx[8:10]=b16(max(u16(mx,8),12))
     new["maxp"]=bytes(mx)
     hh=bytearray(tbls["hhea"])
     nm=u16(hh,34)
+    hh[10:12]=b16(max(u16(hh,10),upem))
     hh[34:36]=b16(n+4)
     new["hhea"]=bytes(hh)
     hmtx=tbls["hmtx"]
@@ -328,6 +334,14 @@ def build(repo, ini):
             cmap[0xe0e0+i] = first_new_id+i
         changed["cmap"] = create_cmap(cmap)
         data = rebuild_font(font,changed)
+        # Catch damaged TTF layouts before the game ever receives the font.
+        parsed = font_tables(data)
+        verified = read_cmap(parsed["cmap"])
+        if any(verified.get(0xe0a0+i)!=first_new_id+i or
+               verified.get(0xe0e0+i)!=first_new_id+i for i in range(4)):
+            raise ValueError("Native button font validation failed for "+style)
+        if u16(parsed["maxp"],4)!=first_new_id+4:
+            raise ValueError("Native glyph count is invalid for "+style)
         target = dest/("nintendo_ext_003_scarlet_"+style+".ttf")
         if not target.exists() or target.read_bytes()!=data:
             target.write_bytes(data)
