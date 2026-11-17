@@ -9,6 +9,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <atomic>
+#include <string.h>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,10 @@ extern int g_game_is_la;  // runtime/kernel.c: Link's Awakening (its own tabs: r
 extern uint64_t g_program_id;  // Scarlet-specific graphics options
 #include "menu.h"
 void input_reset(void);
+#ifdef SCARLET_AOT
+bool scarlet_title_prompt_pending(void);
+uint64_t renderer_present_count(void);
+#endif
 void save_editor_draw(float scale);  // save_editor.mm
 extern "C" int game_in_play(void);  // hle/warp.c
 void save_editor_on_open(void);
@@ -1363,6 +1368,77 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool in_game, v
 static bool render_needed(bool open, bool kbd, bool inv, bool trk, bool trkd, bool chaos, bool race, bool flyin) {
     return open || kbd || g_settings.show_fps || inv || trk || trkd || chaos || race || flyin;
 }
+#ifdef SCARLET_AOT
+// Scarlet's initial "Press A" text is not one of the 16 recognized BC4/BC5
+// action-button masks. Present the matching native device icon over that
+// separate title-screen prompt, without modifying any game data on disk.
+// Hide it after the first logical A action reaches the game.
+static int scarlet_title_prompt_style(void) {
+    return g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
+}
+static bool scarlet_title_prompt_wanted(bool open, bool kbd) {
+    return g_program_id == 0x0100a3d008c5c000ull && !open && !kbd &&
+           scarlet_title_prompt_pending() && renderer_present_count() >= 180 &&
+           scarlet_title_prompt_style() != PROMPTS_NINTENDO;
+}
+static const char *scarlet_title_confirm_label(int style) {
+    if (style == PROMPTS_KEYBOARD) {
+        static const char *const mouse[] = {"LMB", "RMB", "MMB", "MB4", "MB5"};
+        for (int m = 0; m < MOUSEB_COUNT; m++)
+            if (g_bind_mouse[m] == BIND_A) return mouse[m];
+        const char *key = bind_key_label(g_bind_key[BIND_A]);
+        return strcmp(key, "(none)") ? key : "KEY";
+    }
+    return bind_pad_label(bind_pad_effective(BIND_A), style == PROMPTS_PLAYSTATION ? 2 : 1);
+}
+static void scarlet_title_prompt_draw(ImVec2 display, float scale) {
+    int style = scarlet_title_prompt_style();
+    const char *button = scarlet_title_confirm_label(style);
+    const char *before = TR("PRESS", "PRESSIONE");
+    const char *after = TR("TO START", "PARA COMEÇAR");
+    const bool keyboard = style == PROMPTS_KEYBOARD;
+    ImGui::PushFont(g_menu_font ? g_menu_font : ImGui::GetFont());
+    ImVec2 pre = ImGui::CalcTextSize(before), post = ImGui::CalcTextSize(after);
+    ImVec2 label = ImGui::CalcTextSize(button);
+    float gap = 15.0f * scale, padding = 22.0f * scale;
+    float icon_h = fmaxf(42.0f * scale, label.y * 1.42f);
+    float icon_w = keyboard ? fmaxf(icon_h, label.x + 24.0f * scale) : icon_h;
+    float content_w = pre.x + icon_w + post.x + gap * 2;
+    float width = fmaxf(content_w + padding * 2, display.x * 0.50f);
+    if (width > display.x * 0.96f) width = display.x * 0.96f;
+    float height = icon_h + padding * 2;
+    // Same central title prompt area; hide the original Nintendo "A" behind
+    // an opaque Scarlet-Recomp prompt, instead of leaving two conflicting hints.
+    ImVec2 lo((display.x - width) * 0.5f, display.y * 0.715f - height * 0.5f);
+    ImDrawList *dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(lo, ImVec2(lo.x + width, lo.y + height), IM_COL32(25, 28, 33, 244), 18.0f * scale);
+    dl->AddRect(lo, ImVec2(lo.x + width, lo.y + height), IM_COL32(245, 246, 250, 110), 18.0f * scale, 0, 1.5f * scale);
+    float x = lo.x + (width - content_w) * 0.5f;
+    float mid = lo.y + height * 0.5f;
+    const ImU32 white = IM_COL32(255, 255, 255, 255), ink = IM_COL32(25, 28, 33, 255);
+    dl->AddText(ImVec2(x, mid - pre.y * 0.5f), white, before);
+    x += pre.x + gap;
+    ImVec2 b0(x, mid - icon_h * 0.5f), b1(x + icon_w, mid + icon_h * 0.5f);
+    dl->AddRectFilled(b0, b1, white, keyboard ? 9.0f * scale : icon_h * 0.5f);
+    float cx = (b0.x + b1.x) * 0.5f, cy = mid;
+    float r = icon_h * 0.24f, t = 3.5f * scale;
+    if (!strcmp(button, "×")) {
+        dl->AddLine(ImVec2(cx-r, cy-r), ImVec2(cx+r, cy+r), ink, t);
+        dl->AddLine(ImVec2(cx+r, cy-r), ImVec2(cx-r, cy+r), ink, t);
+    } else if (!strcmp(button, "○")) {
+        dl->AddCircle(ImVec2(cx, cy), r, ink, 28, t);
+    } else if (!strcmp(button, "□")) {
+        dl->AddRect(ImVec2(cx-r, cy-r), ImVec2(cx+r, cy+r), ink, 0, 0, t);
+    } else if (!strcmp(button, "△")) {
+        dl->AddTriangle(ImVec2(cx, cy-r), ImVec2(cx+r, cy+r), ImVec2(cx-r, cy+r), ink, t);
+    } else {
+        dl->AddText(ImVec2(cx - label.x * 0.5f, cy - label.y * 0.5f), ink, button);
+    }
+    x += icon_w + gap;
+    dl->AddText(ImVec2(x, mid - post.y * 0.5f), white, after);
+    ImGui::PopFont();
+}
+#endif
 
 #ifdef __APPLE__
 void menu_render(id<MTLDevice> dev, id<MTLCommandBuffer> cb, id<MTLTexture> target) {
@@ -1380,7 +1456,14 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     bool notice = SDL_GetTicks() < g_notice_until.load();  // (menu_notice: a line at the bottom for a few seconds)
     bool race = race_overlay_wanted();  // (run timer, race seed hash: race_overlay.mm)
     bool flyin = pickup_flyin_wanted() && !open;  // (a silent pickup's card)
-    if (!render_needed(open, kbd, inv, trk, trkd, chaos, race, flyin) && !notice) {
+#ifdef SCARLET_AOT
+    bool title_hint = scarlet_title_prompt_wanted(open, kbd);
+#endif
+    if (!render_needed(open, kbd, inv, trk, trkd, chaos, race, flyin) && !notice
+#ifdef SCARLET_AOT
+        && !title_hint
+#endif
+        ) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_events.clear(); pthread_mutex_unlock(&q_lock); }
         g_ov_same = 0;  // (shown again: built afresh first)
         return;
@@ -1405,7 +1488,11 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         fps_note(now, io.DeltaTime);
         char rk[64];
         // (only the FPS counter and the run timer; input only reaches ImGui while the menu or the name entry is up)
-        if (!open && !kbd && !inv && !trk && !trkd && !chaos && !flyin && race_overlay_key(rk, sizeof rk)) {
+        if (!open && !kbd && !inv && !trk && !trkd && !chaos && !flyin
+#ifdef SCARLET_AOT
+            && !title_hint
+#endif
+            && race_overlay_key(rk, sizeof rk)) {
             pthread_mutex_lock(&q_lock);
             bool events = !q_events.empty();
             pthread_mutex_unlock(&q_lock);
@@ -1487,6 +1574,9 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::End();
     }
 
+#ifdef SCARLET_AOT
+    if (title_hint) scarlet_title_prompt_draw(io.DisplaySize, scale);
+#endif
     if (race) race_overlay_draw(io.DisplaySize, g_menu_font_big, scale);
     if (flyin) pickup_flyin_draw(io.DisplaySize, g_font_big ? g_font_big : ImGui::GetFont(), scale);
     if (trk) tracker_overlay_draw(io.DisplaySize, g_font_big ? g_font_big : ImGui::GetFont());
