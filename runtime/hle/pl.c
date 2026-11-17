@@ -218,14 +218,7 @@ static int load_one_checked(const char *path, Font *ft, bool check) {
 }
 
 static int g_fonts_loaded;
-static int g_pl_prompt_done;
-static const char *g_pl_prompt_value;
-RT_ON_RESET(pl_reset) {
-    g_fonts_loaded = 0;
-    g_pl_prompt_done = 0;
-    g_pl_prompt_value = NULL;
-    memset(fonts, 0, sizeof fonts);
-}  // (they were in the HLE heap)
+RT_ON_RESET(pl_reset) { g_fonts_loaded = 0; memset(fonts, 0, sizeof fonts); }  // (they were in the HLE heap)
 
 const char *pl_prompt_set(void);  // (below: the button prompt set)
 
@@ -273,24 +266,9 @@ static void load_fonts(void) {
     const char *set = pl_prompt_set();
     LOG("[pl] button prompts: %s\n", set ? set : "Nintendo");
     if (set) {
-        char path[100];
-#ifdef SCARLET_AOT
-        // Scarlet's title text may use the system NintendoExt private-use
-        // icons, not the BC4/BC5 textures used by action prompts. Supply
-        // native codepoints from a locally generated host font so the game's
-        // own text renderer places the glyph within its original title line.
-        // These fonts are built offline from bundled OFL DejaVu Sans by
-        // tools/scarlet/native_title_glyphs.py, never by drawing an overlay.
-        snprintf(path, sizeof path, "fonts/nintendo_ext_003_scarlet_%s.ttf", set);
-        if (load_one(path, &fonts[F_EXT]))
-            LOG("[scarlet-native-title] native NintendoExt button glyph font: %s\n", set);
-        else
-            LOG("[scarlet-native-title] native glyph font unavailable: %s (Nintendo font fallback)\n", path);
-#endif
-        if (!fonts[F_EXT].addr) {
-            snprintf(path, sizeof path, "fonts/nintendo_ext_003_%s.ttf", set);
-            load_one(path, &fonts[F_EXT]);
-        }
+        char path[64];
+        snprintf(path, sizeof path, "fonts/nintendo_ext_003_%s.ttf", set);
+        load_one(path, &fonts[F_EXT]);
     }
     for (int t = 0; t < N_FONT_TYPES; t++) {
         if (env) load_one(env, &fonts[t]);  // (a forced font: it is what the player asked for, in any language)
@@ -321,8 +299,10 @@ static void load_fonts(void) {
 // font (fonts/nintendo_ext_003_<set>.ttf: tools/za/keyboard_font.py, xbox_font.py) and the game's own UI icons
 // relabelled (textures/prompts/<set>: tools/za/prompt_textures.py, runtime/nvn/vulkan/textures.c).
 const char *pl_prompt_set(void) {
-    if (g_pl_prompt_done) return g_pl_prompt_value;
-    g_pl_prompt_done = 1;
+    static int done;
+    static const char *set;
+    if (done) return set;
+    done = 1;
     // (bind_label_family, not input_pad_family: runtime/services/fs.c asks this before runtime/hle/input.c has opened
     // the controller - it asked SDL, which knows the pad's type already; "auto" used to come out as Nintendo's)
     extern int bind_label_family(void);
@@ -335,9 +315,8 @@ const char *pl_prompt_set(void) {
     bool ps = g_settings.prompts == PROMPTS_PLAYSTATION || (g_settings.prompts == PROMPTS_AUTO && fam == 2);
     bool keys = g_settings.prompts == PROMPTS_KEYBOARD || (g_settings.prompts == PROMPTS_AUTO && !pad && !deck);
     (void)g_bind_pad;  // (each set is made for the bindings: runtime/ui/launcher.mm remakes them when those change)
-    g_pl_prompt_value = keys ? "keyboard" : deck ? "steamdeck" : xbox ? "xbox" :
-                        ps ? "playstation" : pad ? "nintendo" : NULL;
-    return g_pl_prompt_value;
+    set = keys ? "keyboard" : deck ? "steamdeck" : xbox ? "xbox" : ps ? "playstation" : pad ? "nintendo" : NULL;
+    return set;
 }
 
 // SharedFontType: 0 Standard, 1 ChineseSimple, 2 ChineseSimpleExt, 3 ChineseTraditional, 4 Korean, 5 NintendoExt
@@ -349,12 +328,5 @@ static const Font *font_for(uint64_t type) {
 }
 
 HLE_FUNC("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", pl_get_load_state) { c->x[0] = 1; }
-HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address) {
-#ifdef SCARLET_AOT
-    static int reported;
-    if (c->x[0] == F_EXT && reported++ < 4)
-        LOG("[scarlet-native-title] game requested NintendoExt shared-font glyphs\n");
-#endif
-    c->x[0] = font_for(c->x[0])->addr;
-}
+HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address) { c->x[0] = font_for(c->x[0])->addr; }
 HLE_FUNC("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", pl_get_size) { c->x[0] = font_for(c->x[0])->size; }
