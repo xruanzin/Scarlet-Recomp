@@ -459,6 +459,17 @@ static void init(void) {
     if (!g_font) g_font = io.Fonts->AddFontDefault();
     if (!g_font_big) g_font_big = g_font;
     if (!g_menu_font || !g_menu_font_big) g_menu_font = g_font, g_menu_font_big = g_font_big;
+    // Baloo 2 does not reliably contain PlayStation's outline symbols. Merge
+    // only those shapes from bundled DejaVu; the F1 uses both menu font sizes.
+    if (bundled) {
+        static const ImWchar ps_shapes[] = {0x25A1, 0x25A1, 0x25B3, 0x25B3, 0x25CB, 0x25CB, 0};
+        ImFontConfig merge_cfg = cfg;
+        merge_cfg.MergeMode = true;
+        merge_cfg.DstFont = g_menu_font;
+        io.Fonts->AddFontFromFileTTF(bundled, 39, &merge_cfg, ps_shapes);
+        merge_cfg.DstFont = g_menu_font_big;
+        io.Fonts->AddFontFromFileTTF(bundled, 72, &merge_cfg, ps_shapes);
+    }
     style_init();
 #ifdef __APPLE__
     ImGui_ImplMetal_Init(dev);
