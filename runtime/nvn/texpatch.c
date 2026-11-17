@@ -830,6 +830,16 @@ static const char *scarlet_key_label(int slot, char out[12]) {
 static const char *scarlet_pad_label(int slot, int style, char out[12]) {
     if (slot < 0) return style == 2 ? "R3" : "RS";
     const char *src = bind_pad_label(g_bind_pad[slot], style == 2 ? 2 : 1);
+    // F1 shows actual PlayStation symbols; these internal shape tokens tell
+    // the rasterizer to draw geometry rather than the word "Square".
+    if (style == 2) {
+        if (!strcmp(src, "×")) return "Cross";
+        if (!strcmp(src, "○")) return "Circle";
+        if (!strcmp(src, "□")) return "Square";
+        if (!strcmp(src, "△")) return "Triangle";
+    }
+    if (!strcmp(src, "Start")) return "START";
+    if (!strcmp(src, "Select")) return "SELECT";
     if (!strcmp(src, "Left stick press")) return style == 2 ? "L3" : "LS";
     if (!strcmp(src, "Right stick press")) return style == 2 ? "R3" : "RS";
     if (!strcmp(src, "Options")) return "OPT";
