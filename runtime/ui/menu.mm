@@ -1538,6 +1538,19 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             if (close) set_open(false);
         }
 
+#ifdef SCARLET_AOT
+        // Separate branding from navigation, with a thin red rule on white.
+        ImGui::TextColored(ImVec4(0.40f, 0.42f, 0.46f, 1), "%s",
+                           TR("SETTINGS / F1", "CONFIGURAÇÕES / F1"));
+        {
+            ImVec2 left = ImGui::GetCursorScreenPos();
+            float width = ImGui::GetContentRegionAvail().x;
+            ImGui::GetWindowDrawList()->AddLine(left, ImVec2(left.x + width, left.y),
+                                                IM_COL32(202, 39, 56, 180), 2 * scale);
+            ImGui::Dummy(ImVec2(0, 8 * scale));
+        }
+#endif
+
         bool any_popup = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId), typing = ui_text_busy();  // (before the
         tabs_body(scale, true, NULL);                                                                          //  pages run)
         // B with nothing focused-deeper closes the menu (not the Esc / B that ends typing: typing is from the frame
