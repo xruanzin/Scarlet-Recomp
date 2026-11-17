@@ -190,13 +190,11 @@ static uint64_t pace_scene(void) {
     return h ? h : 1;
 }
 
-#if defined(SCARLET_AOT) && defined(_WIN32)
-extern void scarlet_dfps_intro_mode_frame(void);
-#endif
 
 void pace_frame(void) {
-#if defined(SCARLET_AOT) && defined(_WIN32)
-    scarlet_dfps_intro_mode_frame();
+#ifdef SCARLET_AOT
+    extern void scarlet_frame_present(void);
+    scarlet_frame_present();
 #endif
     spike_test();
     static int on = -1;

@@ -607,6 +607,12 @@ static void present_run(const void *p) {
     uint64_t t0 = NOW();
     rq_watch("vkQueuePresentKHR", a->image);
     VkResult r = vkQueuePresentKHR(g_vk.queue, &pi);
+#ifdef SCARLET_AOT
+    if (r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR) {
+        extern void scarlet_present_accepted(void);
+        scarlet_present_accepted();
+    }
+#endif
     rq_watch(NULL, 0);
     uint64_t dt = NOW() - t0;
     __atomic_fetch_add(&g_vk_frame_waits[2], dt, __ATOMIC_RELAXED);
