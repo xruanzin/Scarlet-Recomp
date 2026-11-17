@@ -11,8 +11,11 @@ Set-StrictMode -Version Latest
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $repo
 $branch = (& git branch --show-current).Trim()
-if ($LASTEXITCODE -ne 0 -or $branch -ne 'work/scarlet-indoor-camera-20261117') {
-    throw 'Open the experimental Scarlet camera branch before rebuilding the F1 UI.'
+if ($LASTEXITCODE -ne 0 -or $branch -notin @(
+    'work/scarlet-indoor-camera-20261117',
+    'fix/scarlet-xbox-playstation-prompts-20261117'
+)) {
+    throw 'Open the Scarlet camera branch or the controller-prompt fix branch before rebuilding the F1 UI.'
 }
 if (Get-Process scarlet -ErrorAction SilentlyContinue) {
     throw 'Close Scarlet before linking the updated F1 menu.'
