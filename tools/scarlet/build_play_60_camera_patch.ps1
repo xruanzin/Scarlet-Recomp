@@ -35,7 +35,7 @@ foreach ($item in @($py, $make, $exe, $dll, $id, $main)) {
     }
 }
 $env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
-Write-Host 'Checking Lua hook's synthetic guards...' -ForegroundColor Cyan
+Write-Host 'Checking Lua hook synthetic guards...' -ForegroundColor Cyan
 & $py tools/scarlet/test_lua_camera_native.py
 if ($LASTEXITCODE -ne 0) { throw 'Lua hook guard tests failed.' }
 
@@ -76,7 +76,7 @@ if (-not $Gen) {
         }
     }
     if ($candidates.Count -eq 0) {
-        throw 'No existing Scarlet 4.0.0 generated AOT directory found. Provide -Gen <relative-folder>; no files changed.'
+        throw 'No existing Scarlet 4.0.0 generated AOT directory found. Supply the -Gen parameter with the generated source directory; no files changed.'
     }
     $Gen = ($candidates | Sort-Object Modified -Descending | Select-Object -First 1).Folder
     if ($candidates.Count -gt 1) {
