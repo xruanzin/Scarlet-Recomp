@@ -635,6 +635,7 @@ static void encode_image(const Ref *r, const uint8_t *img, const uint8_t *dirty,
 
 // ------------------------------------------------------------------ labels
 static stbtt_fontinfo g_font;
+static pthread_once_t g_font_once = PTHREAD_ONCE_INIT;
 static bool g_font_ok;
 static uint8_t *g_font_data;
 
@@ -795,7 +796,6 @@ static bool draw_label(int role, int style, float *cv, bool *symbol) {
 // Scarlet-specific runtime prompt drawings. These are generated from existing
 // F1 bindings and the chosen "Button icons" family, not imported game textures.
 #ifdef SCARLET_AOT
-static pthread_once_t scarlet_prompts_font_once = PTHREAD_ONCE_INIT;
 static int scarlet_prompt_style(void) {
     int p = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
     return p == PROMPTS_XBOX ? 1 : p == PROMPTS_PLAYSTATION ? 2 :
@@ -885,7 +885,7 @@ static bool scarlet_prompt_art(float *shape, float *cut, int style, int slot) {
                         scarlet_pad_label(slot, style, buf);
     int sym = style == 2 && (!strcmp(word, "Cross") || !strcmp(word, "Circle") ||
                              !strcmp(word, "Square") || !strcmp(word, "Triangle"));
-    pthread_once(&scarlet_prompts_font_once, load_font);
+    pthread_once(&g_font_once, load_font);
     if (!g_font_ok && !sym) return false;
     for (int y = 0; y < CV; y++) for (int x = 0; x < CV; x++) {
         float dx = fabsf(x + 0.5f - 128), dy = fabsf(y + 0.5f - 128);
@@ -1453,8 +1453,7 @@ void texpatch_apply(int id, uint32_t lv, uint8_t *blocks, uint32_t w, uint32_t h
         for (int rl = R_A; rl <= R_MINUS; rl++) any |= restyled(rl, style);
         if (!any) return;
     }
-    static pthread_once_t font_once = PTHREAD_ONCE_INIT;
-    pthread_once(&font_once, load_font);
+    pthread_once(&g_font_once, load_font);
     int bw = (int)(w + 3) / 4;
     uint8_t *img = malloc((size_t)w * h * 4), *dirty = calloc((size_t)bw * ((h + 3) / 4), 1);
     decode_image(r, blocks, row, img);
