@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
-#include "../../runtime/scarlet_stick_normalize.h"
+#include "../../runtime/hle/scarlet_stick_normalize.h"
 
 static int64_t norm2(int32_t x, int32_t y) {
     return (int64_t)x * x + (int64_t)y * y;
