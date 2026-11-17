@@ -10,7 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..')).TrimEnd([char]'\', [char]'/')
 Set-Location -LiteralPath $repo
 $branch = (& git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $branch -ne 'work/scarlet-indoor-camera-20261117') {
@@ -34,6 +34,7 @@ foreach ($item in @($py, $make, $exe, $dll, $id, $main)) {
         throw "Required local file missing: $item"
     }
 }
+$env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
 Write-Host 'Checking Lua hook's synthetic guards...' -ForegroundColor Cyan
 & $py tools/scarlet/test_lua_camera_native.py
 if ($LASTEXITCODE -ne 0) { throw 'Lua hook guard tests failed.' }
@@ -106,8 +107,6 @@ $backup = Join-Path $repo ('build/scarlet-60-camera-backup-' + (Get-Date -Format
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 Copy-Item -LiteralPath $exe, $dll, $id -Destination $backup -ErrorAction Stop
 Write-Host "Previous playable build backed up: $backup" -ForegroundColor Cyan
-$env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
-
 try {
     Write-Host 'Regenerating only Scarlet main AOT code (exact NSO signature required)...' -ForegroundColor Cyan
     & $py tools/gen.py main $main '0x7000000000' "$genRel/main" --simd c --game scarlet
