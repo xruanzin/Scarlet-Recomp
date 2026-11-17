@@ -144,7 +144,28 @@ bool bind_is_default_slot(int dev, int slot) {
     return dev == BIND_DEV_PAD ? g_bind_pad[slot] == k_def_pad[slot] : g_bind_key[slot] == k_def_key[slot];
 }
 
-int bind_prompt_host(int slot) { return slot >= 0 && slot < BIND_PAD_COUNT ? g_bind_pad[slot] : -1; }
+// Scarlet's original defaults match a Switch by position. On Xbox / PlayStation,
+// the native convention is by button name: bottom A / Cross confirms, right
+// B / Circle goes back. The four default face binds switch as a group so a
+// player's explicit custom mapping (including partially remapped faces) is
+// never silently overwritten or duplicated. The saved INI remains portable.
+int bind_pad_effective(int slot) {
+    if (slot < 0 || slot >= BIND_PAD_COUNT) return -1;
+#ifdef SCARLET_AOT
+    if (slot <= BIND_Y && !memcmp(g_bind_pad, k_def_pad, 4 * sizeof g_bind_pad[0]) &&
+        input_menu_family(0) != 0) {
+        static const int xbox_faces[4] = {
+            SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+            SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH
+        };
+        return xbox_faces[slot];
+    }
+#endif
+    return g_bind_pad[slot];
+}
+// All icon renderers must use exactly the same effective host button as
+// the game input pipeline, not the raw Switch-default configuration.
+int bind_prompt_host(int slot) { return bind_pad_effective(slot); }
 int bind_pad_default(int slot) { return slot >= 0 && slot < BIND_PAD_COUNT ? k_def_pad[slot] : -1; }
 
 // ------------------------------------------------------------------ capture
