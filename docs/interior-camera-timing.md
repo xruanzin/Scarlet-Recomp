@@ -26,6 +26,39 @@ proven fix for the indoor camera.
 The raw `main.blua`, ROMFS, saves and game keys remain **private and
 uncommitted**; the repo contains no copyrighted game code or data.
 
+## Detailed Lua dump supplied on 2026-11-17
+
+The full text dump of prototypes `0.17567`, `0.17747`, and `0.30688`
+confirms:
+
+- `0.17567`, at PCs 31-37, reads global `CD9AE7C27B00EB066`,
+  looks up member `SF667EA15F51B1676`, and calls it with four input
+  arguments. This routine also reads `SUB_STICK` input. **The target
+  function identity and exclusive interior-camera ownership have not yet
+  been proven** from the dump alone.
+- `0.30688` has four parameters. It repeats a three-component lerp:
+  `current[i] += (target[i] - current[i]) * alpha`, with an integer
+  iteration count. When the count is zero it does not interpolate.
+- `0.17747` accumulates its delta time in object field 23, compares
+  to `1/30`, counts due steps and subtracts `1/30` per step. It passes
+  that step count to a downstream method; changing this global scheduler
+  could affect other gameplay components.
+
+The remaining static link is whether `0.30688` is the function registered
+as `CD9AE7C27B00EB066.SF667EA15F51B1676`, and whether the call at
+`0.17567:37` is actually used by `InteriorCameraBehavior.hx`.
+
+The new read-only `trace_interior_camera_bindings.py` prints the root
+`CLOSURE` registration windows and relevant hashed-member uses to
+investigate that link. Run it against the user's **private** decoded Lua:
+
+```powershell
+& .\.venv-scarlet-aot-fixed\Scripts\python.exe tools/scarlet/trace_interior_camera_bindings.py build/scarlet-script-analysis/21977-be21e65463b9a98f.blua > build/scarlet-script-analysis/interior-camera-bindings.json
+```
+
+The output contains only structural evidence; it does not enable a camera
+hook or confirm that gameplay jitter has been fixed.
+
 ## Time-consistent interpolation implementation
 
 The reference implementation in
