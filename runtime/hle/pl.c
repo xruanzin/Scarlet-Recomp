@@ -266,9 +266,24 @@ static void load_fonts(void) {
     const char *set = pl_prompt_set();
     LOG("[pl] button prompts: %s\n", set ? set : "Nintendo");
     if (set) {
-        char path[64];
-        snprintf(path, sizeof path, "fonts/nintendo_ext_003_%s.ttf", set);
-        load_one(path, &fonts[F_EXT]);
+        char path[100];
+#ifdef SCARLET_AOT
+        // Scarlet's title text may use the system NintendoExt private-use
+        // icons, not the BC4/BC5 textures used by action prompts. Supply
+        // native codepoints from a locally generated host font so the game's
+        // own text renderer places the glyph within its original title line.
+        // These fonts are built offline from bundled OFL DejaVu Sans by
+        // tools/scarlet/native_title_glyphs.py, never by drawing an overlay.
+        snprintf(path, sizeof path, "fonts/nintendo_ext_003_scarlet_%s.ttf", set);
+        if (load_one(path, &fonts[F_EXT]))
+            LOG("[scarlet-native-title] native NintendoExt button glyph font: %s\n", set);
+        else
+            LOG("[scarlet-native-title] native glyph font unavailable: %s (Nintendo font fallback)\n", path);
+#endif
+        if (!fonts[F_EXT].addr) {
+            snprintf(path, sizeof path, "fonts/nintendo_ext_003_%s.ttf", set);
+            load_one(path, &fonts[F_EXT]);
+        }
     }
     for (int t = 0; t < N_FONT_TYPES; t++) {
         if (env) load_one(env, &fonts[t]);  // (a forced font: it is what the player asked for, in any language)
