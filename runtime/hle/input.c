@@ -2,7 +2,7 @@
 //
 // Both go through the player's bindings (runtime/hle/bindings.c, defaults there: keyboard WASD left stick, arrows
 // d-pad, K/J/L/I = A/B/X/Y, Q/E = L/R, 1/3 = ZL/ZR, Enter / Backspace = Plus / Minus, numpad 8/4/5/6 right stick;
-// controller by position, Switch A = east).
+// controller: Switch-position defaults on Nintendo, native bottom-button confirmation on Xbox / PlayStation).
 #include <SDL3/SDL.h>
 #include <ctype.h>
 #include <math.h>
@@ -198,7 +198,7 @@ static void recompute_keyboard(void) {
 
 // Controller buttons (and the triggers as buttons) -> Switch buttons through g_bind_pad; the sticks stay the sticks.
 static bool pad_by_pos;  // (battle_abxy_position: ZL held at the last recompute_pad)
-static int pad_host(int i, bool by_pos) { return by_pos && i <= BIND_Y ? bind_pad_default(i) : g_bind_pad[i]; }
+static int pad_host(int i, bool by_pos) { return by_pos && i <= BIND_Y ? bind_pad_default(i) : bind_pad_effective(i); }
 static void recompute_pad(void) {
     uint32_t host = test_pad;
     if (pad && !host_test) {
