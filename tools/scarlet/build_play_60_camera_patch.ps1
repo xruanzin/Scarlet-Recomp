@@ -38,6 +38,18 @@ Write-Host 'Checking Lua hook's synthetic guards...' -ForegroundColor Cyan
 & $py tools/scarlet/test_lua_camera_native.py
 if ($LASTEXITCODE -ne 0) { throw 'Lua hook guard tests failed.' }
 
+$clang = (Get-Command clang -ErrorAction SilentlyContinue)
+if (-not $clang) {
+    $clang = Get-Command 'C:\msys64\ucrt64\bin\clang.exe' -ErrorAction SilentlyContinue
+}
+if (-not $clang) { throw 'clang not found; cannot verify the Lua camera constant guard.' }
+$guardExe = Join-Path $buildAbs 'scarlet-camera-constant-guard.exe'
+Write-Host 'Compiling the standalone C guard for the script constant...' -ForegroundColor Cyan
+& $clang.Source '-std=c11' '-Wall' '-Wextra' '-O2' 'tools/scarlet/test_camera_script_patch.c' '-o' $guardExe
+if ($LASTEXITCODE -ne 0) { throw 'Native Lua camera constant guard compilation failed.' }
+& $guardExe
+if ($LASTEXITCODE -ne 0) { throw 'Native Lua camera constant guard failed.' }
+
 # Use an existing generated AOT source directory for the exact Scarlet
 # build. Never silently create or compile an unrelated game version.
 if (-not $Gen) {
