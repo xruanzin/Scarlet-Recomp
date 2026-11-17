@@ -343,5 +343,12 @@ static const Font *font_for(uint64_t type) {
 }
 
 HLE_FUNC("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", pl_get_load_state) { c->x[0] = 1; }
-HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address) { c->x[0] = font_for(c->x[0])->addr; }
+HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address) {
+#ifdef SCARLET_AOT
+    static int reported;
+    if (c->x[0] == F_EXT && reported++ < 4)
+        LOG("[scarlet-native-title] game requested NintendoExt shared-font glyphs\n");
+#endif
+    c->x[0] = font_for(c->x[0])->addr;
+}
 HLE_FUNC("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", pl_get_size) { c->x[0] = font_for(c->x[0])->size; }
