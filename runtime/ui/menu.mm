@@ -329,8 +329,56 @@ void menu_tabs_focus(bool first_tab) {
 }
 int g_tab_request_ext = -1;
 
-// ZA Recomp's look, as its start screen: night blue panels, gold for what's selected, teal for headings
+// Scarlet F1: white surfaces, charcoal type and scarlet-red controls.
 static void style_init(void) {
+#ifdef SCARLET_AOT
+
+    ImGuiStyle &s = ImGui::GetStyle();
+    ImGui::StyleColorsLight();
+    s.WindowRounding = 16; s.FrameRounding = 9; s.GrabRounding = 8;
+    s.TabRounding = 10; s.ChildRounding = 12; s.PopupRounding = 12;
+    s.WindowPadding = ImVec2(28, 24); s.FramePadding = ImVec2(14, 9);
+    s.ItemSpacing = ImVec2(14, 12);
+    s.WindowBorderSize = 1; s.PopupBorderSize = 1;
+    s.ScrollbarSize = 16; s.TabBarBorderSize = 1;
+    ImVec4 *c = s.Colors;
+    const ImVec4 scarlet(0.79f, 0.15f, 0.21f, 1.00f);
+    const ImVec4 dark(0.12f, 0.13f, 0.15f, 1.00f);
+    const ImVec4 faint(0.96f, 0.96f, 0.97f, 1.00f);
+    const ImVec4 hover(0.99f, 0.92f, 0.93f, 1.00f);
+    c[ImGuiCol_WindowBg] = ImVec4(0.995f, 0.995f, 1.00f, 0.99f);
+    c[ImGuiCol_ChildBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    c[ImGuiCol_PopupBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    c[ImGuiCol_Border] = ImVec4(0.84f, 0.85f, 0.87f, 1.00f);
+    c[ImGuiCol_Text] = dark;
+    c[ImGuiCol_TextDisabled] = ImVec4(0.47f, 0.49f, 0.53f, 1.00f);
+    c[ImGuiCol_FrameBg] = faint;
+    c[ImGuiCol_FrameBgHovered] = hover;
+    c[ImGuiCol_FrameBgActive] = ImVec4(0.97f, 0.84f, 0.87f, 1.00f);
+    c[ImGuiCol_Button] = faint;
+    c[ImGuiCol_ButtonHovered] = hover;
+    c[ImGuiCol_ButtonActive] = ImVec4(0.96f, 0.82f, 0.85f, 1.00f);
+    c[ImGuiCol_Header] = faint;
+    c[ImGuiCol_HeaderHovered] = hover;
+    c[ImGuiCol_HeaderActive] = ImVec4(0.96f, 0.83f, 0.86f, 1.00f);
+    c[ImGuiCol_Tab] = ImVec4(0.97f, 0.97f, 0.98f, 1.00f);
+    c[ImGuiCol_TabHovered] = hover;
+    c[ImGuiCol_TabSelected] = ImVec4(1.00f, 0.91f, 0.93f, 1.00f);
+    c[ImGuiCol_TabSelectedOverline] = scarlet;
+    c[ImGuiCol_TabDimmed] = c[ImGuiCol_Tab];
+    c[ImGuiCol_TabDimmedSelected] = c[ImGuiCol_TabSelected];
+    c[ImGuiCol_CheckMark] = scarlet;
+    c[ImGuiCol_SliderGrab] = ImVec4(0.83f, 0.36f, 0.42f, 1.00f);
+    c[ImGuiCol_SliderGrabActive] = scarlet;
+    c[ImGuiCol_NavCursor] = scarlet;
+    c[ImGuiCol_Separator] = ImVec4(0.85f, 0.86f, 0.88f, 1.00f);
+    c[ImGuiCol_TableHeaderBg] = faint;
+    c[ImGuiCol_TableRowBgAlt] = ImVec4(0.97f, 0.97f, 0.98f, 1.00f);
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0.98f, 0.98f, 0.99f, 1.00f);
+    c[ImGuiCol_ScrollbarGrab] = ImVec4(0.80f, 0.81f, 0.83f, 1.00f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.69f, 0.70f, 0.73f, 1.00f);
+    c[ImGuiCol_TitleBg] = c[ImGuiCol_TitleBgActive] = c[ImGuiCol_WindowBg];
+#else
     ImGuiStyle &s = ImGui::GetStyle();
     ImGui::StyleColorsDark();
     s.WindowRounding = 18; s.FrameRounding = 10; s.GrabRounding = 10; s.TabRounding = 10; s.ChildRounding = 14;
@@ -370,6 +418,7 @@ static void style_init(void) {
     c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
     c[ImGuiCol_ScrollbarGrab] = ImVec4(1, 1, 1, 0.14f);
     c[ImGuiCol_TitleBg] = c[ImGuiCol_TitleBgActive] = c[ImGuiCol_WindowBg];
+#endif
 }
 
 
