@@ -224,7 +224,16 @@ static void recompute_pad(void) {
     // so with A/B/X/Y bound by letter (Xbox A = the Switch's A) they read swapped. While ZL is held those four go by
     // position, as in the defaults; the rest of the game keeps the player's bindings (#26).
     int zl = g_bind_pad[BIND_ZL];
-    bool by_pos = pad_by_pos = g_settings.battle_abxy_position && zl >= 0 && zl < PADB_HOST_COUNT && (host >> zl & 1);
+#ifdef SCARLET_AOT
+    // Xbox/PlayStation always keep their selected native A/Cross=confirm
+    // convention, including while ZL is held for battle moves. The optional
+    // legacy positional battle shortcut is only meaningful with Nintendo.
+    bool nintendo_layout = input_menu_family(0) == 0;
+#else
+    bool nintendo_layout = true;
+#endif
+    bool by_pos = pad_by_pos = g_settings.battle_abxy_position && nintendo_layout &&
+                                   zl >= 0 && zl < PADB_HOST_COUNT && (host >> zl & 1);
     uint64_t b = 0;
     for (int i = 0; i < BIND_PAD_COUNT; i++) {
         int h = pad_host(i, by_pos);
