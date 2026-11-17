@@ -14,7 +14,8 @@ $branch = (& git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $branch -notin @(
     'work/scarlet-indoor-camera-20261117',
     'fix/scarlet-xbox-playstation-prompts-20261117',
-    'fix/scarlet-native-controller-layout-title-prompt-20261117'
+    'fix/scarlet-native-controller-layout-title-prompt-20261117',
+    'fix/scarlet-native-title-glyph-no-overlay-20261117'
 )) {
     throw 'Open the Scarlet camera branch or the controller-prompt fix branch before rebuilding the F1 UI.'
 }
@@ -47,6 +48,19 @@ if ($LASTEXITCODE -ne 0) {
     throw "F1 UI build failed; previous executable restored."
 }
 Write-Host 'Scarlet F1 white theme compiled. The existing game DLL remains intact.' -ForegroundColor Green
+# Scarlet's native title/button font: no fake panel drawn over the original game.
+# Build a separate host-style font from the bundled OFL font, leaving existing
+# Nintendo system font dumps and game resources untouched.
+$py = Get-Command python -ErrorAction SilentlyContinue
+if (-not $py) {
+    throw 'Python not found. Install Python or make it available on PATH to build the native title glyphs.'
+}
+$fontTool = Join-Path $repo 'tools\scarlet\native_title_glyphs.py'
+& $py.Source $fontTool --repo $repo --settings (Join-Path $repo 'larecomp.ini')
+if ($LASTEXITCODE -ne 0) {
+    throw 'Native Scarlet title button font generation failed. The previous game DLL and saves are unchanged.'
+}
+Write-Host 'Scarlet native title glyphs prepared for Xbox / PlayStation / keyboard. No large overlay.' -ForegroundColor Green
 if ($BuildOnly) { return }
 
 foreach ($key in @('LARECOMP_INPUT', 'LARECOMP_HOST_INPUT', 'LARECOMP_SHOT_AT',
