@@ -13,7 +13,8 @@ Set-Location -LiteralPath $repo
 $branch = (& git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $branch -notin @(
     'work/scarlet-indoor-camera-20261117',
-    'fix/scarlet-xbox-playstation-prompts-20261117'
+    'fix/scarlet-xbox-playstation-prompts-20261117',
+    'fix/scarlet-native-controller-layout-title-prompt-20261117'
 )) {
     throw 'Open the Scarlet camera branch or the controller-prompt fix branch before rebuilding the F1 UI.'
 }
