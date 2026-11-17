@@ -229,8 +229,13 @@ static int row(const char *label, const std::string &value, bool changed, const 
     }
     if (!value.empty()) {
         float vw = ImGui::CalcTextSize(value.c_str()).x, vx = right - vw;
+#ifdef SCARLET_AOT
+        dl->AddText(ImVec2(vx, ty), off ? IM_COL32(143, 146, 151, 255) : warn ? IM_COL32(188, 27, 45, 255)
+                                    : changed ? IM_COL32(174, 33, 50, 255) : IM_COL32(77, 80, 86, 255), value.c_str());
+#else
         dl->AddText(ImVec2(vx, ty), off ? IM_COL32(100, 116, 128, 255) : warn ? IM_COL32(240, 110, 90, 255)
                                     : changed ? IM_COL32(255, 255, 255, 255) : IM_COL32(194, 209, 219, 255), value.c_str());
+#endif
     }
     if (dup) ImGui::PopID();
     ImGui::PopID();
@@ -385,13 +390,17 @@ static void left_end(void) {
     else if (g_desc_shown.empty()) g_desc_shown = g_desc_first;
 }
 
-// the right pane's child window, after a gold line between the two
+// the right pane's child window, separated by the current theme accent
 static void right_begin(const char *id, ImGuiWindowFlags flags) {
     ImGui::SameLine(0, 0);
     ImVec2 p = ImGui::GetCursorScreenPos(), avail = ImGui::GetContentRegionAvail();
     float gap = 24 * g_scale;
     ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x + gap * 0.5f, p.y), ImVec2(p.x + gap * 0.5f, p.y + avail.y),
+#ifdef SCARLET_AOT
+                                        IM_COL32(202, 39, 56, 120), 1.0f);
+#else
                                         IM_COL32(242, 181, 68, 110), 1.0f);
+#endif
     ImGui::SetCursorScreenPos(ImVec2(p.x + gap, p.y));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14 * g_scale, 6 * g_scale));
     ImGui::BeginChild(id, ImVec2(0, avail.y), ImGuiChildFlags_AlwaysUseWindowPadding, flags);
