@@ -377,11 +377,21 @@ extern "C" void controls_tab_draw(float scale) {
         char autol[64];  // (what Auto stands for now: bind_prompts_auto, the same rule as runtime/hle/pl.c)
         const char *names[] = {autol, "Nintendo", "Xbox", "PlayStation", TR("Keyboard", "Teclado"), "Steam Deck"};
         snprintf(autol, sizeof autol, "Auto (%s)", names[bind_prompts_auto()]);
+#ifdef SCARLET_AOT
+        opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
+                   TR("Choose the look of the in-game button icons, using your existing bindings. "
+                      "Xbox, PlayStation and keyboard/mouse glyphs appear as matching UI textures are reloaded. "
+                      "Unrecognised game art stays unchanged.",
+                      "Escolha o visual dos botões no jogo usando os mapeamentos atuais. "
+                      "Os ícones de Xbox, PlayStation e teclado/mouse mudam quando as texturas reconhecidas são recarregadas. "
+                      "Imagens não reconhecidas permanecem originais."));
+#else
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
                    TR("The button icons the game shows. Auto: the connected controller's (the keyboard's with none). "
                       "Applies from the next start.",
                       "Os ícones de botões que o jogo mostra. Auto: os do controle conectado (os do teclado se não houver "
                       "controle). Vale a partir do próximo início."));
+#endif
     }
     opt_toggle(TR("Battle moves by position", "Golpes por posição"), &g_settings.battle_abxy_position, false,
                TR("While ZL is held, the controller's A / B / X / Y go by position (the Switch's A on the right), so each "
