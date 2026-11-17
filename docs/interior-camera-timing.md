@@ -150,6 +150,48 @@ controller-only modification point, avoiding changes to the shared
 & .\.venv-scarlet-aot-fixed\Scripts\python.exe tools/scarlet/trace_interior_camera_state.py build/scarlet-script-analysis/21977-be21e65463b9a98f.blua > build/scarlet-script-analysis/interior-camera-state.json
 ```
 
+## DelayFactor initialization and actual scheduler candidate (2026-11-17)
+
+The user's `interior-camera-state.json` resolves the controller's local
+interpolation inputs more precisely:
+
+- `0.17566` initializes `self[41]` using the configuration key
+  `DelayFactor`, read via the object's accessor. This is a smoothing
+  **coefficient**, not a clock interval. Its actual runtime value and range
+  have not been measured.
+- `0.17567` passes `self[42]`, a computed target vector,
+  `self[41]` and its own third parameter to the previously verified
+  shared interpolator. It writes a new `self[42]` vector after
+  interpolation.
+- `0.17518` explicitly calls the `FC0150FC2959FFA71` method
+  (the root-registered `0.17567`) with its own method argument plus
+  `self[22]` at PCs 32–35. Its bytecode contains a distinct
+  `1/30` constant at `0x7efc05`, consistent with a per-controller
+  scheduler. The registration/class membership of `0.17518` still
+  needs an identity-checked read of the private Lua chunk.
+- The previously studied `0.17747` is **not** thereby established as
+  the scheduler for this camera. It belongs to another class. Avoid
+  changing it as a shortcut.
+
+This sharpens the hypothesis: if `0.17518` supplies alternating
+0/1 step counts to `0.17567` at ~60 FPS, the interpolator skips
+the zero-count frames. A controller-specific solution would require
+a timed camera interpolation every presented frame, with
+`alpha(dt) = 1-(1-alpha30)^(30*dt)` and correct treatment of
+the camera's target and update ordering. Merely multiplying the
+smoothing coefficient by 0.5 or changing only the 1/30 constant
+would not preserve the original behavior.
+
+The new read-only tool `tools/scarlet/trace_interior_camera_scheduler.py`
+validates the Lua call instruction sequence, 30-Hz constant and root
+method registrations, then prints the scheduler class identity and the
+field references for `self[21]`/`self[22]`. No gameplay patch or
+copyrighted scripts are committed.
+
+```powershell
+& .\.venv-scarlet-aot-fixed\Scripts\python.exe tools/scarlet/trace_interior_camera_scheduler.py build/scarlet-script-analysis/21977-be21e65463b9a98f.blua
+```
+
 ## Integration criteria before a native camera fix
 
 1. Reproduce interior jitter with a **private save starting inside a house**
