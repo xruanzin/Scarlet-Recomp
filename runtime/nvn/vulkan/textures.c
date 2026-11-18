@@ -23,6 +23,9 @@
 #include "../texpatch.h"
 #include "../../settings.h"
 
+// Scarlet 4.0.0 title ID: restrict optional shadow scaling to its sun shadow arrays.
+extern uint64_t g_program_id;
+
 // ================================================================== formats
 typedef struct { VkFormat vf; uint8_t expand_rgb, alpha_one; } VkFmt;
 
@@ -233,13 +236,26 @@ static float tex_shadow_scale(const NvnTexture *t) {
         if (k < 1) k = 1;
         if (k > 4) k = 4;
     }
-    if (k == 1 || !(t->flags & 8) || t->samples > 1 || t->width != t->height || t->width < 256 || t->width * k > 8192) return 1;
+    // Scarlet's sun shadow maps are 2048x2048 (depth, including array cascades).
+    // The Z-A/LA generic 4x path could otherwise allocate up to 8192x8192 for
+    // Scarlet and upscale unrelated square depth targets. Keep Scarlet's larger
+    // 4096 maps opt-in and leave other texture sizes at the game's resolution.
+    const bool scarlet = g_program_id == UINT64_C(0x0100a3d008c5c000);
+    const int applied = scarlet && k > 2 ? 2 : k;
+    if (scarlet && (t->width != 2048 || t->height != 2048 ||
+                    !renderer_format_is_depth(t->format))) return 1;
+    if (applied == 1 || !(t->flags & 8) || t->samples > 1 ||
+        t->width != t->height || t->width < 256 ||
+        t->width * applied > (scarlet ? 4096u : 8192u)) return 1;
     bool array = t->target == 4 && t->depth >= 2 && t->depth <= 4;
     if (!array && !(t->target == 1 && renderer_format_is_depth(t->format))) return 1;
     static int nlog;
-    if (nlog++ < 4) LOG("[vk] shadow map %s %ux%u (%u layers) drawn at %ux%u\n", renderer_format_is_depth(t->format) ? "depth" : "colour", t->width, t->height, t->target == 4 ? t->depth : 1,
-                        t->width * k, t->height * k);
-    return (float)k;
+    if (nlog++ < 4)
+        LOG("[vk] shadow map %s %ux%u (%u layers) drawn at %ux%u%s\n",
+            renderer_format_is_depth(t->format) ? "depth" : "colour",
+            t->width, t->height, t->target == 4 ? t->depth : 1,
+            t->width * applied, t->height * applied, scarlet ? " [Scarlet]" : "");
+    return (float)applied;
 }
 
 bool renderer_texture_first_write(NvnTexture *t) {
