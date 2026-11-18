@@ -3,7 +3,8 @@
 [CmdletBinding()]
 param(
   [string]$BuildId = 'eb6deb908752b9c6',
-  [switch]$CreateDraft
+  [switch]$CreateDraft,
+  [switch]$ControlsRC
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -12,7 +13,8 @@ $bin = Join-Path $root "build\scarlet\$BuildId"
 $out = Join-Path $root 'build\dist'
 $stageRoot = Join-Path $root 'build\scarlet-release-staging'
 $stage = Join-Path $stageRoot 'Scarlet-Recomp'
-$zip = Join-Path $out 'Scarlet-Recomp-windows.zip'
+$zip = Join-Path $out $(if ($ControlsRC) { 'Scarlet-Recomp-Controls-RC-Windows-x64.zip' } else { 'Scarlet-Recomp-windows.zip' })
+if ($ControlsRC -and $CreateDraft) { throw 'Controls RC packaging does not create a GitHub draft. Use the tested ZIP manually after approval.' }
 if (!(Test-Path -LiteralPath $bin -PathType Container)) { throw "No local Windows build: $bin" }
 function CopySafe([string]$source, [string]$target) {
   if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Required file missing: $source" }
@@ -159,6 +161,10 @@ foreach ($copy in @(
 )) {
   CopySafe (Join-Path $root $copy[0]) $copy[1]
 }
+if ($ControlsRC) {
+  CopySafe (Join-Path $root 'docs\SCARLET-RELEASE-STABLE-CONTROLS-RC-20261117.md') 'NOTAS-CONTROLES-RC.md'
+  CopySafe (Join-Path $root 'docs\SCARLET-RELEASE-STABLE-CONTROLS-RC-20261117.md') 'docs\SCARLET-RELEASE-STABLE-CONTROLS-RC-20261117.md'
+}
 # Protect users and developers from publishing compiled game code or their keys.
 $deny = '(?i)(^|[\\/])(lasgame\.dll(\.id)?|prod\.keys|title\.keys|[^\\/]*\.(nsp|xci|nca|tik)|romfs(\.bin)?|exefs|scarlet-games|save|saves|logs|user|extracted|generated-scarlet)([\\/]|$)'
 $bad = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.FullName -match $deny })
@@ -176,6 +182,9 @@ try {
                       'Scarlet-Recomp/zig/zig.exe','Scarlet-Recomp/lasgen/lasgen.exe',
                       'Scarlet-Recomp/lasrecomp.dll.a','Scarlet-Recomp/gamelib-src/gamelib_entry.c')) {
     if ($entries -notcontains $name) { throw "ZIP is missing: $name" }
+  }
+  if ($ControlsRC -and $entries -notcontains 'Scarlet-Recomp/NOTAS-CONTROLES-RC.md') {
+    throw 'Controls RC ZIP is missing its version-specific notes.'
   }
 } finally { $archive.Dispose() }
 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
