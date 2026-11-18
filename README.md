@@ -1,62 +1,68 @@
 <div align="center">
 
+<img src="launcher/assets/scarlet_launcher_background.jpg" alt="Scarlet-Recomp launcher artwork" width="820">
+
 # Scarlet-Recomp
 
-**Pokémon Scarlet 4.0.0 — native Windows runtime**
+**Pokémon Scarlet on Windows, with PC-friendly controls and extra performance options.**
 
-Static recompilation (AOT) · Vulkan · Windows 11 x64
+Independent port for **Pokémon Scarlet 4.0.0** · Windows 11 · Vulkan
 
-[Português (Brasil)](README.pt-BR.md) · [Release notes](docs/RELEASE-v1.0.0.md) · [Build & setup](docs/BUILD-windows.md) · [Issues](https://github.com/xruanzin/Scarlet-Recomp/issues)
+[Português (Brasil)](README.pt-BR.md) · [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases) · [What's new](CHANGELOG.md) · [Report an issue](https://github.com/xruanzin/Scarlet-Recomp/issues)
 
 </div>
 
 ---
 
-> [!IMPORTANT]
-> **v1.0.0 is in preparation.** The game runs in local development tests, but the portable ZIP and first-run setup have **not** been verified on a clean Windows installation. There is no published, validated release yet.
+**Scarlet-Recomp** is a community project that runs Pokémon Scarlet natively on Windows. It prepares the game from files provided by the player; original game content is not included.
 
-## About
+The goal is a more comfortable PC experience, with familiar controller layouts, graphics settings and optional higher frame rates.
 
-Scarlet-Recomp is an **unofficial, community-developed native Windows port** of Pokémon Scarlet 4.0.0. It recompiles code from the player's own game files ahead of time and runs it with a Windows/Vulkan runtime, rather than using a suyu-based emulator.
+> **Current status:** the controller build passed a portable ZIP smoke test and has run in local playtests. First-time setup on a separate clean Windows installation and some features still need verification. A public download will be listed under **Releases** once that work is done.
 
-Based on the architecture of [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) and [LASRecomp](https://github.com/peiikai/LASRecomp), with Scarlet-specific integration and graphics work.
+## Features
 
-## Current state
+- **PC controls:** keyboard and mouse, Xbox, PlayStation and Nintendo controllers, with remapping in the F1 menu.
+- **Controller icons:** select the device style in F1 to replace supported in-game button symbols. Start/Select and face-button mappings follow the selected layout.
+- **Custom F1 menu:** clean light interface with Scarlet accents; display, audio and control options in **English and Portuguese**.
+- **30 and 60 FPS:** a 60 FPS mode is available for testing alongside the traditional 30 FPS option.
+- **120 and 240 FPS:** available in the launcher, but **highly experimental**; stable gameplay and correct timing are not guaranteed.
+- **Graphics options:** resolution, scaling, sharpening, filtering and other controls.
+- **Launcher:** select your own base game, update 4.0.0, optional DLCs and required keys for local installation.
+- **FPS counter:** optional overlay in F1.
 
-| Component | Status |
+## Performance tests
+
+| Graphics card | Reported result |
 | --- | --- |
-| Native Windows/Vulkan runtime | Boots and runs in local development tests |
-| Custom launcher and NSP/XCI importer | Implemented; clean-install workflow not yet verified |
-| Pokémon Scarlet update 4.0.0 | Targeted version |
-| 30 FPS | Recommended baseline |
-| 60 FPS / 120 FPS / 240 FPS | Experimental targets; timing and physics may differ |
-| Public portable ZIP | In preparation; no verified release published |
+| **GeForce RTX 5060** | **60 FPS** in local tests |
+| **GeForce RTX 3050** | **60 FPS** in tests reported to the project |
 
-**Known issues:** eyes and eyebrows may disappear in some cutscenes; the enrollment-form portrait may appear black; other graphical or stability issues remain possible. Some earlier character-animation and fullscreen flicker problems were resolved in specific local builds, but require verification in the packaged v1.0.0.
+These are test results, not minimum requirements or guaranteed performance. CPU, resolution, drivers and in-game scenes matter. Even at 60 FPS, some game behaviour remains experimental.
 
-## Requirements and setup
+## Screenshots
 
-You need **Windows 11 x64**, a Vulkan-capable GPU/driver, **your own legally obtained Pokémon Scarlet base game and update 4.0.0**, and your own keys if required for local import.
+The image above is **launcher artwork**, not a gameplay screenshot. We're preparing a gallery of real Scarlet gameplay, F1 settings and controller prompts.
 
-When a validated package is available, it will appear in [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). Its launcher is designed to import the player's files and generate the game-specific AOT library locally.
+[Gallery and screenshot submission guide](docs/showcase/README.md)
 
-> [!NOTE]
-> This repository **does not distribute** the game, NSP/XCI dumps, keys, RomFS, saves, or a game-derived `lasgame.dll`. Initial setup can take time and is not yet validated on an unrelated Windows PC.
+## Known issues
 
-## Development and documentation
+- **Player portrait at the beginning:** the player photo in the enrollment form may be black or missing. **This is a known visual bug to be fixed**, not a disabled feature.
+- **Faces and effects:** eyes, eyebrows and some visual effects may render incorrectly in certain scenes.
+- **Title-screen button:** *“PRESS A TO START”* may still use the original Switch A icon even if F1 is set to Xbox, PlayStation or keyboard.
+- **High FPS:** 120 and 240 FPS are experimental and may affect animations, physics and game speed.
 
-The Windows packaging workflow for maintainers is:
+## Getting started
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_release_candidate.ps1
-```
+When ready, the public package will be posted on [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). You will need **64-bit Windows 11**, a Vulkan-capable GPU, **your own** Pokémon Scarlet base game and update **4.0.0**, plus keys from your own setup where required.
 
-That command assumes a configured development environment and existing AOT build. It is **not** an end-user install command.
+The launcher includes tools to prepare the game locally. First-time preparation may take a while and has not yet been fully validated on a separate clean PC.
 
-[Windows build guide](docs/BUILD-windows.md) · [v1.0.0 preparation checklist](docs/RELEASE-CHECKLIST-v1.0.0.md) · [Dependencies](docs/RELEASE-DEPENDENCIES-v1.0.0.md) · [Development notes](docs/SCARLET-BOOTSTRAP.md)
+**No NSP/XCI, game files, keys, saves or game-derived compiled DLL are distributed.**
 
 ## Credits
 
-Developed by **xruanzin**, with technical assistance from **ChatGPT (OpenAI)**. Thanks to the developers and contributors of [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and the other upstream components.
+Developed by **[xruanzin](https://github.com/xruanzin)**, building on [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and their contributors. The F1 menu was adapted from their original work. Development included assistance from AI tools.
 
-This is an independent project, **not affiliated with Nintendo, Game Freak, or The Pokémon Company**. See [LICENSE](LICENSE); source-code licensing does not grant rights to redistribute game content.
+Unofficial community project; not affiliated with Nintendo, Game Freak or The Pokémon Company. See the [license](LICENSE) and third-party notices.

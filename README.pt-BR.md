@@ -1,62 +1,70 @@
 <div align="center">
 
+<img src="launcher/assets/scarlet_launcher_background.jpg" alt="Arte do launcher do Scarlet-Recomp" width="820">
+
 # Scarlet-Recomp
 
-**Pokémon Scarlet 4.0.0 — versão nativa para Windows**
+**Pokémon Scarlet no Windows, com controles para PC e novos ajustes de desempenho.**
 
-Recompilação estática (AOT) · Vulkan · Windows 11 x64
+Port independente para **Pokémon Scarlet 4.0.0** · Windows 11 · Vulkan
 
-[English](README.md) · [Notas da v1.0.0](docs/RELEASE-v1.0.0.md) · [Compilação](docs/BUILD-windows.md) · [Reportar problema](https://github.com/xruanzin/Scarlet-Recomp/issues)
+[English](README.md) · [Versões](https://github.com/xruanzin/Scarlet-Recomp/releases) · [Novidades](CHANGELOG.md) · [Reportar um problema](https://github.com/xruanzin/Scarlet-Recomp/issues)
 
 </div>
 
 ---
 
-> [!IMPORTANT]
-> **A v1.0.0 está em preparação.** O jogo funciona nos testes locais de desenvolvimento, mas o ZIP portátil e a preparação inicial **ainda não foram validados em uma instalação limpa do Windows**. Ainda não há uma release pública validada.
+O **Scarlet-Recomp** é um projeto comunitário que permite executar Pokémon Scarlet de forma nativa no Windows. O jogo é preparado a partir dos arquivos da própria pessoa, sem incluir o conteúdo original no download.
 
-## Sobre o projeto
+A ideia é simples: deixar a experiência no PC mais confortável, com suporte a diferentes controles, ajustes visuais e novas opções de FPS.
 
-O Scarlet-Recomp é um **port nativo, comunitário e não oficial** de Pokémon Scarlet 4.0.0 para Windows. O projeto recompila antecipadamente o código dos arquivos do jogo do próprio usuário e utiliza um runtime Windows/Vulkan, sem recorrer a um emulador baseado no suyu.
+> **Estado atual:** a versão de controles passou no teste do ZIP portátil e já rodou em testes locais. A instalação completa em outro Windows e algumas funções ainda precisam de mais testes. O download público será disponibilizado em **Releases** quando essa etapa estiver concluída.
 
-A arquitetura parte de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) e [LASRecomp](https://github.com/peiikai/LASRecomp), com adaptações e correções específicas para Scarlet.
+## O que já tem
 
-## Estado atual
+- **Controles de PC:** suporte a teclado e mouse, Xbox, PlayStation e Nintendo, com remapeamento pelo menu F1.
+- **Ícones dos botões:** escolha o tipo de controle no F1 para exibir os símbolos compatíveis nas imagens já reconhecidas; Start/Select e os botões de ação seguem o padrão selecionado.
+- **Menu F1 próprio:** visual claro com detalhes escarlate, opções de vídeo, áudio e controles, em **português ou inglês**.
+- **30 e 60 FPS:** modo de 60 FPS disponível para testes, além da opção tradicional de 30 FPS.
+- **120 e 240 FPS:** opções presentes no launcher, **altamente experimentais**, sem garantia de estabilidade ou de velocidade correta do jogo.
+- **Ajustes gráficos:** resolução, escala de imagem, nitidez, filtros e outras opções para adaptar o visual ao computador.
+- **Launcher:** seleção dos arquivos base e atualização 4.0.0 do jogo, DLCs opcionais e chaves próprias para preparar a instalação.
+- **Contador de FPS:** opcional, ativado diretamente no F1.
 
-| Componente | Situação |
+## Testes de desempenho
+
+| Placa de vídeo | Resultado informado |
 | --- | --- |
-| Runtime nativo Windows/Vulkan | Inicializa e executa nos testes locais |
-| Launcher e importação NSP/XCI | Implementados; instalação limpa ainda não validada |
-| Pokémon Scarlet 4.0.0 | Versão-alvo |
-| 30 FPS | Referência recomendada |
-| 60 / 120 / 240 FPS | Metas experimentais; podem afetar física e temporização |
-| ZIP público | Em preparação; nenhuma release validada publicada |
+| **GeForce RTX 5060** | **60 FPS** em testes locais |
+| **GeForce RTX 3050** | **60 FPS** em testes informados para o projeto |
 
-**Problemas conhecidos:** olhos e sobrancelhas podem desaparecer em algumas cenas; a foto da ficha de matrícula pode ficar preta; outros defeitos gráficos e de estabilidade podem ocorrer. A flutuação na animação da cadeira e as piscadas em tela cheia deixaram de ocorrer em builds locais específicas, mas ainda precisam ser verificadas no pacote v1.0.0.
+São resultados de testes, não requisitos mínimos ou garantia de desempenho. CPU, resolução, drivers e a cena do jogo também influenciam. O modo de 60 FPS ainda pode apresentar comportamentos inesperados em alguns momentos.
 
-## Requisitos e instalação
+## Fotos
 
-É necessário ter **Windows 11 x64**, driver/GPU compatível com Vulkan, **sua própria cópia legítima do jogo base e da atualização 4.0.0**, além das chaves da sua instalação quando exigidas pela importação.
+A imagem acima é a **arte do launcher**. Estamos organizando uma galeria com imagens reais da jogabilidade, do menu F1 e dos controles; elas serão adicionadas aqui conforme forem registradas.
 
-Quando estiver validado, o pacote será disponibilizado em [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). O launcher foi projetado para importar os arquivos do usuário e gerar localmente a biblioteca AOT específica do jogo.
+[Ver a galeria e como enviar fotos](docs/showcase/README.md)
 
-> [!NOTE]
-> O repositório **não distribui** o jogo, NSP/XCI, keys, RomFS, saves nem a `lasgame.dll` derivada do jogo. A preparação inicial pode demorar e ainda não foi validada em outro PC com Windows limpo.
+## Problemas conhecidos
 
-## Desenvolvimento e documentação
+O projeto ainda está em desenvolvimento. Alguns problemas visuais podem aparecer:
 
-Para mantenedores, o empacotamento no Windows utiliza:
+- **Retrato do jogador no início:** a foto do personagem pode ficar preta ou não aparecer na ficha de matrícula. **É um bug visual conhecido, ainda a ser corrigido**, não uma opção desativada.
+- **Rostos e efeitos:** olhos, sobrancelhas e alguns efeitos gráficos podem apresentar falhas em cenas específicas.
+- **Símbolo na tela inicial:** a frase *“PRESSIONE A PARA COMEÇAR”* pode continuar mostrando o ícone original do Switch, mesmo com outro controle selecionado no F1.
+- **FPS acima de 60:** os modos 120 e 240 FPS são experimentais e podem afetar animações, física e velocidade do jogo.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_release_candidate.ps1
-```
+## Como começar
 
-O comando pressupõe um ambiente de desenvolvimento configurado e uma build AOT existente. **Não é uma instrução de instalação para jogadores.**
+Quando um pacote público estiver disponível, ele ficará na página de [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). É necessário ter **Windows 11 (64 bits)**, placa compatível com Vulkan, os **arquivos próprios** do jogo base e da atualização **4.0.0** e as chaves da sua instalação quando solicitadas.
 
-[Guia de compilação](docs/BUILD-windows.md) · [Checklist da v1.0.0](docs/RELEASE-CHECKLIST-v1.0.0.md) · [Dependências](docs/RELEASE-DEPENDENCIES-v1.0.0.md) · [Notas de desenvolvimento](docs/SCARLET-BOOTSTRAP.md)
+O launcher reúne as ferramentas para preparar o jogo localmente. O primeiro processo pode demorar; ainda estamos validando todo o fluxo fora do computador de desenvolvimento.
+
+O repositório **não disponibiliza NSP/XCI, chaves, saves, arquivos do jogo ou a DLL compilada a partir dele**.
 
 ## Créditos
 
-Desenvolvido por **xruanzin**, com assistência técnica do **ChatGPT (OpenAI)**. Agradecimentos aos autores e colaboradores de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) e demais componentes usados no projeto.
+Projeto desenvolvido por **[xruanzin](https://github.com/xruanzin)**, com base no trabalho de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) e [LASRecomp](https://github.com/peiikai/LASRecomp) e seus colaboradores. O F1 foi adaptado a partir do menu original desses projetos. Desenvolvimento com apoio de ferramentas de IA.
 
-Projeto independente, **sem vínculo oficial com Nintendo, Game Freak ou The Pokémon Company**. Consulte a [LICENSE](LICENSE); a licença do código-fonte não autoriza redistribuir conteúdo do jogo.
+Projeto não oficial, sem vínculo com Nintendo, Game Freak ou The Pokémon Company. Consulte a [licença](LICENSE) e os avisos das dependências.
