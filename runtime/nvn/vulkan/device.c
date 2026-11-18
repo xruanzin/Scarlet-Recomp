@@ -30,6 +30,11 @@ VK_DEVICE_COMMANDS_13(VK_DEFINE_COMMAND_13)
 #undef VK_DEFINE_COMMAND
 #undef VK_DEFINE_COMMAND_13
 static SDL_Window *window;
+// F9 is received on the UI thread, but only the Vulkan render thread should arm a frame capture.
+static _Atomic int vk_f9_capture_request;
+bool vk_f9_capture_take_request(void) {
+    return atomic_exchange_explicit(&vk_f9_capture_request, 0, memory_order_acq_rel) != 0;
+}
 
 // The system memory heap a whole-heap import (exec.c host_import) lands in and what it can hold: the largest heap with
 // a host-visible memory type that isn't device-local (all of them device-local: the largest host-visible one), the
@@ -1806,14 +1811,8 @@ static void present_hooks(void) {
     save_editor_frame(total_frames);
     extern void vk_level_change_check(void);
     vk_level_change_check();
-    static long debug_at = -1;
-    if (debug_at < 0) { const char *e = ENV("LARECOMP_DEBUG_FRAME"); debug_at = e ? atol(e) : 0; }
-    extern volatile int g_debug_frame_request;
-    if (g_debug_frame_request) { g_debug_frame_request = 0; debug_at = (long)total_frames + 1; }
-    // LARECOMP_DEBUG_FRAMES=<n> (with LARECOMP_DEBUG_FRAME / F9): dump n consecutive frames (build/pass_<frame>_NNN.png)
-    static long debug_n = -1;
-    if (debug_n < 0) { const char *e = ENV("LARECOMP_DEBUG_FRAMES"); debug_n = e && atol(e) > 1 ? atol(e) : 1; }
-    g_debug_frame = debug_at && total_frames >= (uint64_t)debug_at && total_frames < (uint64_t)debug_at + (uint64_t)debug_n;
+    // The Vulkan renderer owns the debug-frame switch. Setting it here on the game thread
+    // could turn it off before the asynchronous render thread processes the queued frame.
 }
 
 void backend_present(NvnTexture *t) {
@@ -2005,9 +2004,8 @@ int ui_run(void) {
             // Capture F9 before the menu can consume keyboard events (e.g. an overlay is open).
             // It is a host-only diagnostic: do not forward/alter any game controls here.
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9 && !e.key.repeat) {
-                extern volatile int g_debug_frame_request;
-                g_debug_frame_request = 1;
-                LOG("[debug] F9 pressed: capture next presented frame's render passes\n");
+                atomic_store_explicit(&vk_f9_capture_request, 1, memory_order_release);
+                LOG("[debug] F9 pressed: queued request for Vulkan render thread\n");
             }
             input_cursor_event(&e);
             atomic_store(&ui_stage, "menu_handle_event");

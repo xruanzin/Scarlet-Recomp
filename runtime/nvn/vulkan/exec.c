@@ -9298,10 +9298,43 @@ static void exec_list(uint64_t handle, int depth) {
     }
 }
 
+// F9 arrives on the SDL/UI thread. The game thread may queue work ahead of the Vulkan render
+// thread, so its transient one-frame flag cannot reliably identify the frame being translated.
+// Arm and run the capture here, keyed to the *render* frame (rq_frame, or total_frames without
+// a separate render thread). This captures all eligible passes of one complete frame.
+static void debug_capture_render_frame_begin(void) {
+    extern uint64_t renderer_exec_frame(void);
+    extern bool vk_f9_capture_take_request(void);
+    static uint64_t last_frame = UINT64_MAX;
+    uint64_t frame = renderer_exec_frame();
+    if (frame == last_frame) return;
+    last_frame = frame;
+
+    static long at = -1, count = -1;
+    static bool f9_pending;
+    if (at < 0) {
+        const char *e = ENV("LARECOMP_DEBUG_FRAME");
+        at = e ? atol(e) : 0;
+    }
+    if (count < 0) {
+        const char *e = ENV("LARECOMP_DEBUG_FRAMES");
+        count = e && atol(e) > 1 ? atol(e) : 1;
+    }
+    if (vk_f9_capture_take_request() && !f9_pending) {
+        at = (long)frame + 1;
+        f9_pending = true;
+        LOG("[debug] F9 armed Vulkan render frame %llu\n", (unsigned long long)at);
+    }
+    g_debug_frame = at > 0 && frame >= (uint64_t)at && frame - (uint64_t)at < (uint64_t)count;
+    if (f9_pending && frame >= (uint64_t)at) f9_pending = false;
+    if (g_debug_frame) LOG("[debug] capturing render frame %llu passes\n", (unsigned long long)frame);
+}
+
 // submit: end the submission after this list (else it goes on into the next list's)
 static void execute_one(uint64_t handle, bool submit) {
     extern void plat_sample_focus(void);  // (runtime/platform.h: LARECOMP_SAMPLE_EXEC samples this thread)
     plat_sample_focus();
+    debug_capture_render_frame_begin();
     exec_gen++;
     uint64_t t0 = SDL_GetTicksNS();
     exec_list(handle, 0);
