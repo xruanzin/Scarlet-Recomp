@@ -46,14 +46,14 @@ git switch -c release/scarlet-stable-controls-rc-20261117 FETCH_HEAD
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\prepare_stable_controls_zip.ps1
 ```
 
-O empacotador da RC chama a compilação de release, inclui `ScarletLauncher.exe`, `scarlet.exe`, o importador, gerador AOT e Zig para que cada jogador prepare a própria cópia legalmente obtida, incorpora estas notas no arquivo, fecha a auditoria de dependências e realiza um teste portátil. Ele **não distribui** `lasgame.dll`, NSP/XCI, keys, saves ou game data.
+O empacotador da RC detecta automaticamente a compilação funcional em `build/window-full-20261112` (ou usa `build/scarlet/<BuildId>` quando aquela não existe), recompila `scarlet.exe` e `ScarletLauncher.exe` **sem recompilar `lasgame.dll`**, inclui o importador, gerador AOT e Zig para que cada jogador prepare a própria cópia legalmente obtida, incorpora estas notas no arquivo, audita dependências e realiza um teste portátil. Também aceita `-BuildDirectory "build/outra-pasta"` quando a compilação funcional estiver em outro lugar dentro do clone. Ele **não distribui** `lasgame.dll`, NSP/XCI, keys, saves ou game data.
 
 **Arquivos gerados no PC do mantenedor:**
 
 - `build/dist/Scarlet-Recomp-Controls-RC-Windows-x64.zip`
 - `build/dist/Scarlet-Recomp-Controls-RC-Windows-x64.zip.sha256`
 
-Se as ferramentas e a build completa em `build/scarlet/eb6deb908752b9c6` já estiverem prontas, use `-UsePreparedBuild` para apenas empacotar; não use esse modo quando os executáveis forem de uma branch anterior. O teste automático confirma que o executável abre numa pasta isolada e reconhece o ambiente de compilação, mas **não** substitui o teste de importação e jogo num Windows limpo.
+Se as ferramentas e a build completa em `build/scarlet/eb6deb908752b9c6` já estiverem prontas, use `-UsePreparedBuild` para apenas empacotar; não use esse modo quando os executáveis forem de uma branch anterior. O teste automático confirma que o executável abre numa pasta isolada e reconhece o ambiente de compilação, mas **não** substitui o teste de importação e jogo num Windows limpo. Se aparecer a mensagem antiga `Nao achei a pasta AOT: build/scarlet/eb6...`, atualize esta branch antes de repetir; ela era causada por um caminho fixo da versão anterior do empacotador.
 
 Não crie tag `stable` nem publique uma release até passar pela validação acima.
 
