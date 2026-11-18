@@ -1,218 +1,115 @@
 <div align="center">
 
-<img src="docs/icon/icon_1024.png" alt="ZA Recomp" width="128">
+<img src="https://raw.githubusercontent.com/xruanzin/Scarlet-Recomp/main/launcher/assets/scarlet_launcher_background.jpg" width="850" alt="Scarlet-Recomp artwork">
 
-# ZA Recomp
+# Scarlet-Recomp
 
-**A native PC port of *Pokémon Legends: Z-A*, built by static recompilation.**
+### Pokémon Scarlet, recompiled for Windows.
 
-**English** · [Português (Brasil)](README.pt-BR.md)
+An independent native PC port of **Pokémon Scarlet 4.0.0**.
 
-[Download](https://github.com/Hexveil404/PokeZ-ARecomp/releases/latest) ·
-[Report a bug](https://github.com/Hexveil404/PokeZ-ARecomp/issues) ·
-[macOS port (MonZaMac)](https://github.com/lucabravi/MonZaMac)
+**Windows 11** · **Vulkan** · **Native AOT** · **Keyboard & Controller Support**
+
+[Download](https://github.com/xruanzin/Scarlet-Recomp/releases) · [Features](#features) · [Getting Started](#getting-started) · [Known Issues](#known-issues) · [Português](README.pt-BR.md)
 
 </div>
 
 ---
 
-ZA Recomp turns the game's Nintendo Switch code into a native Windows program. The ARM64 code is translated ahead of
-time into C and compiled for x86-64 on your PC, and the Switch's operating system and GPU (NVN) are reimplemented on
-top of Vulkan. No emulator runs while you play.
+## About
 
-It is built on **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by Peiikai, the static recompiler made for
-*The Legend of Zelda: Link's Awakening*.
+Scarlet-Recomp brings Pokémon Scarlet to Windows through native recompilation. It runs the game with a Windows/Vulkan runtime instead of running the original Switch system through an emulator.
 
-> [!IMPORTANT]
-> **You need your own copy of the game.** ZA Recomp does not include any game files, code, assets or fonts.
-
-## Contents
-
-- [Screenshots](#screenshots)
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation) ([Mega Dimension DLC](#mega-dimension-dlc))
-- [Controls](#controls)
-- [Saves](#saves)
-- [Mods](#mods)
-- [Troubleshooting](#troubleshooting)
-- [Building from source](#building-from-source)
-- [Credits](#credits)
-- [Legal](#legal)
-
-## Screenshots
-
-| | |
-|---|---|
-| ![Lumiose City at 60 fps](docs/screenshots/lumiose.jpg) | ![The start screen](docs/screenshots/start-screen.png) |
-| Lumiose City at 60 fps | The start screen, with your team |
-| ![The game's menu](docs/screenshots/menu.jpg) | ![The bag](docs/screenshots/bag.jpg) |
-| The game's menu (with a translation mod) | The bag |
+Built around the player's own copy of **Pokémon Scarlet and update 4.0.0**, with a custom PC launcher, familiar controller layouts, higher frame-rate options, and a growing collection of visual fixes.
 
 ## Features
 
-**Performance**
-- 60 fps at the game's normal speed, or 30 fps as on the Switch
-- Internal resolution from 25% up to 4x (1x = 1080p), plus Dynamic and Match display
-- Frame pacing option (Smooth / Standard) for displays where the frame rate looks uneven
+### Native Windows experience
 
-**Graphics** (all optional, off by default)
-- Upscaling with AMD FSR 1, anti-aliasing with SMAA or AMD FSR 2 (temporal), sharpening
-- HDR output (HDR10 / scRGB)
-- Ambient occlusion (GTAO), indirect light (screen-space GI) and water reflections
-- Sharper shadows (higher shadow map resolution) and high-quality texture filtering
-- HD texture packs (`textures/hd/`)
+- **Native execution:** Pokémon Scarlet 4.0.0 runs through a recompiled game library and a Vulkan-based Windows runtime.
+- **Dedicated launcher:** browse for your game files, choose the update, add optional DLC files, and prepare the installation from one place.
+- **Local game preparation:** import your own NSP/XCI files and build the game-specific library on your PC. The original game is not included in this project.
+- **Persistent settings:** saved display, input, and launch preferences, with a convenient way to revisit them.
 
-**Controls**
-- Any SDL3 controller: Xbox, PlayStation (DualShock 4 / DualSense), Switch Pro, Steam Deck and more
-- Keyboard and mouse, with a mouse-driven camera
-- Every button and key can be rebound; button icons match your controller (Xbox, PlayStation, Nintendo, Steam Deck,
-  keyboard)
-- Battle moves by position, right stick snap to axis
+### Frame rate & performance
 
-**Start screen**
-- Sets the game up from your own files and compiles it once on your PC
-- Mods manager (romfs mods), save import / export and backups
-- English and Portuguese (Brazil)
+- **30 FPS:** the original frame-rate option.
+- **60 FPS:** a working, tested option for smoother gameplay, with occasional game-specific issues still possible.
+- **120 / 240 FPS:** selectable in the launcher, but **experimental**. These modes are not validated for stable gameplay or correct physics and animations.
+- **FPS counter and frame pacing:** optional in-game counter and frame presentation settings.
+- **Display profiles:** fullscreen or windowed play, adjustable internal resolution, and docked/handheld rendering options.
 
-## Requirements
+### Graphics & visual enhancements
 
-| | |
-|---|---|
-| **OS** | Windows 10 (1903 or newer) or Windows 11, 64-bit |
-| **CPU** | x86-64 with AVX2 (2013 or newer). Older CPUs with SSE4.2 also work, but compile and run slower |
-| **GPU** | Vulkan 1.2 or newer (1.3 recommended) with an up-to-date driver |
-| **RAM** | 8 GB (16 GB recommended) |
-| **Disk** | About 12 GB free |
-| **Game** | Pokémon Legends: Z-A **1.0.0, 2.0.0 or 2.0.2**, optionally with the *Mega Dimension* DLC |
+- **Resolution scaling:** render above or below the original resolution, with options for sharper output and ultrawide-friendly framing.
+- **Upscaling & anti-aliasing:** adjustable image scaling, sharpening, SMAA, and optional AMD FSR rendering paths.
+- **Lighting & shadows:** shadow resolution and sharpness, ambient occlusion, indirect lighting, and water-reflection settings.
+- **Image quality:** texture filtering, dynamic-resolution controls, and HDR options for compatible displays.
+- **Scarlet-specific fixes:** improvements to hair colouring, sky rendering, and other visual issues found during development.
 
-Linux is not officially supported yet. On a Mac, use [MonZaMac](https://github.com/lucabravi/MonZaMac) by
-[@lucabravi](https://github.com/lucabravi), a native macOS port based on this project.
+Some advanced rendering options are experimental and may behave differently depending on the GPU or scene.
 
-## Installation
+### Input & controls
 
-1. Download the latest `ZA-Recomp-windows.zip` from [Releases](https://github.com/Hexveil404/PokeZ-ARecomp/releases/latest)
-   and extract it to a folder of your choice (for example `C:\Games\ZA Recomp`).
-2. Prepare your own copy of the game in a folder, in one of two ways:
-   - **Extracted game**: the `exefs` and `romfs` folders, as an emulator or your Switch extracts them. No keys needed.
-   - **Dump**: the base game (`.xci` or `.nsp`), optionally the update and the *Mega Dimension* DLC (`.nsp`), together with the
-     `prod.keys` from your own Switch.
-3. Run `lasrecomp.exe`. On the start screen, choose that folder (or drag it onto the window) and click
-   **Set up the game**.
-4. The game's files are read and its code is compiled for your PC. This takes 10 to 30 minutes depending on your CPU
-   and happens **only once**. After an update of ZA Recomp, only what changed is compiled again.
-5. Click **Play**.
+- **Xbox, PlayStation, Nintendo, and Steam Deck-style layouts**, plus keyboard and mouse.
+- **Custom button mapping:** remap buttons, keyboard keys, mouse input, triggers, and sticks.
+- **Native button conventions:** Xbox **A/B** and PlayStation **×/○** follow their familiar confirm/cancel positions when using the matching defaults.
+- **Controller prompts:** supported in-game icons adapt to the chosen layout, including face buttons and **Start / Select** equivalents.
+- **Mouse camera and controller vibration** with adjustable controls.
 
-Your own files are never changed. Optionally, import your console's fonts on the start screen (**Settings > Files**)
-for the original text and button icons; without them a substitute font is used.
+### Everyday details
 
-### Mega Dimension DLC
+- **English and Brazilian Portuguese** for the PC interface, with automatic language selection based on Windows.
+- **In-game language selection** using the languages supplied by the player's own game files.
+- **Volume, movie audio, and reverb** controls.
+- **Compatibility adjustments** for different systems, plus logs to help track down issues.
 
-The DLC is supported through the **dump** route (the extracted `exefs` / `romfs` folders don't include it):
+## Performance
 
-1. Put these files together in one folder: the base game (`.xci` or `.nsp`), the **update** (`.nsp`, version 2.0.0 or
-   newer - the DLC's content comes with it), the **DLC** (`.nsp`) and the `prod.keys` from your Switch (plus
-   `title.keys` if the start screen asks for it).
-2. Choose that folder on the start screen and click **Set up the game**.
-3. The start screen shows **+ DLC** next to the game version when it was found.
+The port has reached **60 FPS** in the following reported tests:
 
-Already set up without the DLC? Click **Change game folder**, choose the folder again with the DLC added and set it up
-again. Your saves and settings are kept.
+| GPU | Result |
+| :--- | :--- |
+| **NVIDIA GeForce RTX 5060** | **60 FPS** — local playtests |
+| **NVIDIA GeForce RTX 3050** | **60 FPS** — reported playtests |
 
-## Controls
+Results are not a benchmark or a guarantee of constant frame rates. Performance depends on the CPU, resolution, drivers, and the area being played. The 60 FPS path has been used in gameplay tests, but timing and graphics still need continued validation.
 
-Press **F1** in game (or open **Settings** on the start screen) for the settings menu: frame rate, resolution,
-graphics options, controls, button icons and more. Settings are saved immediately to `larecomp.ini`.
+**Higher frame-rate modes (120 and 240 FPS) are experimental.** They may cause animation, physics, or pacing problems, even on fast hardware.
 
-| Keyboard (default) | Switch |
-|---|---|
-| W A S D | Left stick |
-| Arrow keys | D-pad |
-| K / J / L / I | A / B / X / Y |
-| Q / E | L / R |
-| 1 / 3 | ZL / ZR |
-| Enter / Backspace | + / − |
-| F / Numpad 0 | Left / right stick click |
-| Numpad 8 / 4 / 5 / 6 | Right stick |
-| Mouse | Camera; left button ZR (throw), right button ZL (aim) |
+## Getting started
 
-| Key | Action |
-|---|---|
-| F1 / Esc | Settings menu |
-| F11 / Alt+Enter | Fullscreen |
-| F10 | Screenshot (`screenshots/`) |
+**Requirements:** Windows 11 (64-bit), a Vulkan-capable graphics card with updated drivers, your own Pokémon Scarlet base game and **update 4.0.0**, and keys from your own console setup when needed for importing.
 
-All bindings can be changed in **Settings > Controls > Configure inputs**.
+1. Get a Windows package from [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases) when one is published.
+2. Extract it to a folder and open **ScarletLauncher.exe**.
+3. Select the folder with your own NSP/XCI files, the update, and any optional DLCs. Supply your own keys if requested.
+4. Let the launcher prepare the game on your PC, then launch it.
 
-## Saves
+The first setup may take some time while the game is being processed and compiled. The portable package **passed an isolated startup smoke test**, but a complete first-time install on another clean Windows PC has **not yet been verified**. Until that is finished, the project should be treated as a release candidate.
 
-Saves are the game's own files, kept in `save/save_0/` next to `lasrecomp.exe`. They are the same as on the Switch, so
-they move between the two without conversion. The **Saves** page on the start screen imports, exports and restores
-backups; every import keeps your previous save as a backup.
+**No game files, NSP/XCI dumps, encryption keys, saves, RomFS, or game-derived compiled DLLs are provided here.**
 
-- **Switch → PC**: back up the save with **JKSV** on your Switch, copy the backup folder (it holds a file named `main`)
-  to your PC and import it on the **Saves** page.
-- **PC → Switch**: export the save, copy its files into a JKSV backup folder on the SD card and restore it with JKSV.
-- **Game versions**: a 2.0.x save needs the game set up with the 2.0.x update. Version 2.0.0 converts a 1.0.0 save the
-  first time it saves, and the converted save no longer loads on 1.0.0. Keep a backup.
+## Known issues
 
-## Mods
+- **Missing player portrait:** the player's photo may appear black or fail to display on the enrollment form near the beginning of the game. **This is a visual bug that still needs a fix.**
+- **Occasional rendering problems:** eyes, eyebrows, certain effects, or textures may not look correct in some scenes.
+- **Title-screen button icon:** the original Switch **A** symbol may still appear on the start prompt even after choosing another controller layout.
+- **Experimental frame rates:** 120 and 240 FPS are not considered stable. Some timing, camera, or animation issues may also occur in the 60 FPS mode.
+- **First-run compatibility:** game preparation and startup on an unrelated Windows installation still need broader testing.
 
-Mods that replace game files (a `romfs` folder): translations, textures, models. Install them from the **Mods** page
-(or drop the mod onto the window); they are kept in `mods/`. When two mods replace the same file, the one higher in the
-list wins.
+If you find a reproducible issue, you can [report it here](https://github.com/xruanzin/Scarlet-Recomp/issues).
 
-Mods that change the game's code (`exefs`, IPS patches, cheat plugins) do not work with a recompiled game.
+## Development
 
-## Troubleshooting
+The current codebase contains the Windows runtime, launcher, game importer, controller mappings, graphics adjustments, and packaging tools.
 
-- **Logs**: each session writes `logs/play.log` next to the exe (the previous one is kept as `logs/play-anterior.log`).
-  Please attach it to any bug report.
-- **Graphics driver errors** ("Your graphics driver crashed", a GPU page fault): open
-  **Settings > Video > Compatibility** and turn the options off one at a time. They apply from the next start.
-- **Low frame rate**: lower the internal resolution or turn on Dynamic resolution, and turn off the optional graphics
-  features.
-- **Report a bug**: [open an issue](https://github.com/Hexveil404/PokeZ-ARecomp/issues) with your GPU, driver version,
-  game version and `logs/play.log`.
-
-## Building from source
-
-ZA Recomp builds on Windows with MSYS2 (UCRT64: clang, SDL3, FFmpeg, shaderc, Vulkan headers) and Python 3. See
-[docs/BUILD-windows.md](docs/BUILD-windows.md) for the setup. `bash tools/za/dist.sh` builds the release folder
-(`build/dist-za/ZA Recomp/`; `ZIP=1` for the zip), which ships without any game code: the start screen compiles it on
-the player's PC.
-
-Where things are: the recompiler is in `tools/`, the runtime in `runtime/` (HLE services, the NVN implementation in
-`runtime/nvn/`, the Vulkan backend in `runtime/nvn/vulkan/` and the Maxwell shader translator in
-`runtime/nvn/maxwell/`), and the Pokémon Z-A tools in `tools/za/`.
-
-Contributions are welcome. Never commit or attach Nintendo files (game files, extracted data, generated code, fonts,
-saves).
+For local builds and troubleshooting, see the [Windows build guide](docs/BUILD-windows.md), [release requirements](docs/RELEASE-DEPENDENCIES-v1.0.0.md), and the [source code](https://github.com/xruanzin/Scarlet-Recomp).
 
 ## Credits
 
-- **[Peiikai](https://github.com/peiikai)**: creator of [LAS Recomp](https://github.com/peiikai/LASRecomp), the static
-  recompiler, runtime, renderers and shader translator this port is built on.
-- **[Hexveil404](https://github.com/Hexveil404)**: the Pokémon Legends: Z-A port.
-- **ZA Recomp contributors**: [@Primus92](https://github.com/Primus92), [@Atterax](https://github.com/Atterax),
-  [@wimw85](https://github.com/wimw85), [@lucabravi](https://github.com/lucabravi) and everyone who reported issues
-  and tested builds.
-- **LAS Recomp contributors**: see [docs/LASRecomp-README.md](docs/LASRecomp-README.md#credits).
-- **[Ryujinx](https://github.com/Ryujinx/Ryujinx)**, used as a behavioural reference (no code taken),
-  **[envytools](https://github.com/envytools/envytools)** and **[Switchbrew](https://switchbrew.org)** for GPU and
-  system documentation.
-- **Libraries**: [SDL 3](https://libsdl.org), [FFmpeg](https://ffmpeg.org), [Dear ImGui](https://github.com/ocornut/imgui),
-  [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator),
-  [shaderc](https://github.com/google/shaderc), [SMAA](https://github.com/iryoku/smaa),
-  [AMD FidelityFX FSR 1 and FSR 2](https://github.com/GPUOpen-Effects), [XeGTAO](https://github.com/GameTechDev/XeGTAO),
-  [LibHac](https://github.com/Thealexbarney/LibHac), [Zig](https://ziglang.org) and the others listed in
-  [docs/LASRecomp-README.md](docs/LASRecomp-README.md#license).
+**Scarlet-Recomp** is developed and maintained by **[xruanzin](https://github.com/xruanzin)**.
 
-## Legal
+Based on the work of **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)**, **[LASRecomp](https://github.com/peiikai/LASRecomp)**, and their contributors, with Scarlet-specific changes and additions. Development assistance included ChatGPT.
 
-ZA Recomp is a fan project. It is not affiliated with, endorsed or sponsored by Nintendo, Game Freak, Creatures or
-The Pokémon Company. *Pokémon* and *Pokémon Legends: Z-A* are trademarks of their respective owners. No game files,
-code, assets or fonts are included; you must provide your own legally obtained copy of the game.
-
-The code is released under the [MIT License](LICENSE) (LAS Recomp © Peiikai). Third-party components keep their own
-licenses; see [docs/LASRecomp-README.md](docs/LASRecomp-README.md#license).
+This is an **unofficial fan project**, not affiliated with Nintendo, Game Freak, or The Pokémon Company. All Pokémon content belongs to its respective owners. See [LICENSE](LICENSE) and third-party license notices.
