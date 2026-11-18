@@ -4,6 +4,7 @@
 [CmdletBinding()]
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
+    [string]$BuildDirectory = '',
     [switch]$UsePreparedBuild,
     [switch]$SkipSmokeTest
 )
@@ -30,16 +31,42 @@ $builder = Join-Path $root 'tools\scarlet\build_release_candidate.ps1'
 $packager = Join-Path $root 'tools\scarlet\create_release_zip.ps1'
 $test = Join-Path $root 'tools\scarlet\test_release_zip.ps1'
 
+# Prefer the already-validated Scarlet Windows test build, where the user's
+# AOT DLL and fast 60 FPS host were actually compiled. Old release recipes
+# unconditionally used build/scarlet/eb6..., which is absent in this clone.
+if (-not $BuildDirectory) {
+    $working = Join-Path $root 'build\window-full-20261112'
+    $legacy = Join-Path $root ("build\scarlet\" + $BuildId)
+    if ((Test-Path -LiteralPath (Join-Path $working 'scarlet.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $working 'lasgame.dll') -PathType Leaf)) {
+        $BuildDirectory = $working
+    } elseif ((Test-Path -LiteralPath (Join-Path $legacy 'scarlet.exe') -PathType Leaf) -and
+              (Test-Path -LiteralPath (Join-Path $legacy 'lasgame.dll') -PathType Leaf)) {
+        $BuildDirectory = $legacy
+    } else {
+        throw ("No working Scarlet build found in: " + $working + " or " + $legacy +
+               ". Supply -BuildDirectory with the folder that contains scarlet.exe and lasgame.dll.")
+    }
+}
+$BuildDirectory = (Resolve-Path -LiteralPath $BuildDirectory -ErrorAction Stop).Path
+foreach ($required in @('scarlet.exe','lasgame.dll','lasgame.dll.id')) {
+    $file = Join-Path $BuildDirectory $required
+    if (!(Test-Path -LiteralPath $file -PathType Leaf)) {
+        throw "The existing AOT build is missing $required in $BuildDirectory"
+    }
+}
+Write-Host ("Compilacao Windows existente: " + $BuildDirectory) -ForegroundColor Cyan
+
 Write-Host 'Scarlet-Recomp Controls RC (Windows x64) — pacote publico' -ForegroundColor Cyan
 Write-Host 'Branch verificada; compilacao AOT do jogo permanece particular.' -ForegroundColor Cyan
 if ($UsePreparedBuild) {
-    $compiled = Join-Path $root ("build\scarlet\" + $BuildId + "\scarlet.exe")
+    $compiled = Join-Path $BuildDirectory 'scarlet.exe'
     if (!(Test-Path -LiteralPath $compiled -PathType Leaf)) {
         throw "No prepared build: $compiled. Run without -UsePreparedBuild to compile."
     }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -ControlsRC
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -BuildDirectory $BuildDirectory -ControlsRC
 } else {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId -ControlsRC
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId -BuildDirectory $BuildDirectory -ControlsRC
 }
 if ($LASTEXITCODE -ne 0) {
     throw 'Build or ZIP packaging failed. Nothing has been published.'
