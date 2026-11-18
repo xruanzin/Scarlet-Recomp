@@ -4,6 +4,7 @@
 [CmdletBinding()]
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
+    [string]$BuildDirectory = '',
     [switch]$CreateDraft,
     [switch]$ControlsRC,
     [string]$PythonExe = ''
@@ -14,7 +15,11 @@ $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $builder = Join-Path $root 'tools\scarlet\build_next_version.ps1'
 $packager = Join-Path $root 'tools\scarlet\create_release_zip.ps1'
 if ($ControlsRC -and $CreateDraft) { throw 'This Controls RC must not be published automatically.' }
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId
+if ($BuildDirectory) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId -BuildDirectory $BuildDirectory
+} else {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId
+}
 if ($LASTEXITCODE -ne 0) { throw 'Scarlet Windows build failed; release package not created.' }
 
 # Build the game-code generator and pinned portable compiler ONCE on the maintainer
@@ -263,7 +268,11 @@ if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
     } finally { Pop-Location }
 }
 if ($ControlsRC) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -ControlsRC
+    if ($BuildDirectory) {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -BuildDirectory $BuildDirectory -ControlsRC
+    } else {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -ControlsRC
+    }
 } elseif ($CreateDraft) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -CreateDraft
 } else {
