@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "cpu.h"
 
 #ifdef SCARLET_AOT
@@ -134,13 +135,48 @@ uint64_t scarlet_frame_time_ns(void) {
 
 void scarlet_frame_present(void) {
     static uint64_t last, history[8], report, previous_accepted, previous_supplied;
+    static uint64_t phase_deadline;
+    static int phase_lock = -1;
     static unsigned count, cursor, frames;
     const uint64_t period = (1000000000ull + g_scarlet_target_fps - 1) /
                             g_scarlet_target_fps;
+    if (phase_lock < 0) {
+        const char *override = getenv("SCARLET_PHASE_LOCK");
+        phase_lock = !override || strcmp(override, "0") != 0;
+    }
     uint64_t now = plat_now_ns();
-    if (last && now < last + period) {
-        plat_sleep_until_ns(last + period);
-        now = plat_now_ns();
+    if (phase_lock && g_scarlet_target_fps == 60) {
+        /* Test path: keep a fixed 60 Hz phase instead of using each actual
+         * (slightly late) wake-up as the start of the next full 16.67 ms wait.
+         * A 0.2-0.3 ms wake-up overshoot on every frame otherwise accumulates
+         * into a repeatable ~58.9 fps ceiling on Windows. Do not use this for
+         * the separately experimental 120/240 fps targets.
+         *
+         * If rendering falls more than one frame behind, resynchronise rather
+         * than trying to catch up with a burst of unpaced presents. The
+         * measured elapsed clock supplied to Scarlet below stays unchanged. */
+        if (!last || now < last || now - last > 250000000ull) {
+            phase_deadline = now;
+        } else {
+            uint64_t next = phase_deadline + period;
+            if (next < phase_deadline || (now > next && now - next > period)) {
+                phase_deadline = now;
+            } else {
+                phase_deadline = next;
+                if (now < next) {
+                    plat_sleep_until_ns(next);
+                    now = plat_now_ns();
+                }
+            }
+        }
+    } else {
+        /* Original pacing available for A/B tests with
+         * SCARLET_PHASE_LOCK=0; preserve the 30/120/240 paths. */
+        if (last && now < last + period) {
+            plat_sleep_until_ns(last + period);
+            now = plat_now_ns();
+        }
+        phase_deadline = now;
     }
     uint64_t elapsed = last ? now - last : period;
     if (!last || elapsed > 250000000ull) {
