@@ -3,13 +3,24 @@
 [CmdletBinding()]
 param(
   [string]$BuildId = 'eb6deb908752b9c6',
+  [string]$BuildDirectory = '',
   [switch]$CreateDraft,
   [switch]$ControlsRC
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$bin = Join-Path $root "build\scarlet\$BuildId"
+# Allow packaging the already-built Windows runtime without moving any game
+# binaries into a second historical build directory.
+if ($BuildDirectory) {
+  $bin = (Resolve-Path -LiteralPath $BuildDirectory -ErrorAction Stop).Path
+  $prefix = $root.TrimEnd('\') + '\'
+  if (!$bin.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "BuildDirectory must be within the Scarlet-Recomp clone: $bin"
+  }
+} else {
+  $bin = Join-Path $root ("build\scarlet\" + $BuildId)
+}
 $out = Join-Path $root 'build\dist'
 $stageRoot = Join-Path $root 'build\scarlet-release-staging'
 $stage = Join-Path $stageRoot 'Scarlet-Recomp'
