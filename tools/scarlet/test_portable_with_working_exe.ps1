@@ -13,7 +13,7 @@ $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 if (!$SourceExe) { $SourceExe = Join-Path $repo 'build\window-full-20261112\scarlet.exe' }
 $SourceExe = (Resolve-Path -LiteralPath $SourceExe -ErrorAction Stop).Path
 
-if (!(Test-Path -LiteralPath $PortableDirectory -PathType Container)) {
+if (!$PortableDirectory -or !(Test-Path -LiteralPath $PortableDirectory -PathType Container)) {
     if ($PortableDirectory) {
         throw "Pasta portable nao encontrada: $PortableDirectory"
     }
