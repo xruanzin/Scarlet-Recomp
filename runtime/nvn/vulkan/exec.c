@@ -1458,6 +1458,9 @@ static void vk_end_pass_at(int line) {
     rec_CmdEndRendering(vk_cmd());
     in_pass = false;
     if (g_debug_frame && debug_pass_rt.ncolor && debug_pass_rt.color[0] && debug_pass_rt.color[0]->backend) {
+        // rt_paths_init() chdirs into LARECOMP_DATA_ROOT (userdata in isolated runs).
+        // Relative build/pass_*.png paths must exist there, NOT beside scarlet.exe.
+        mkdir("build", 0755);
         char path[256];
         static uint64_t debug_pass_frame = ~0ull;
         static int multi = -1;
