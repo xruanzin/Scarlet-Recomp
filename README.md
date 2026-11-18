@@ -1,30 +1,41 @@
 <div align="center">
 
+<img src="https://raw.githubusercontent.com/xruanzin/Scarlet-Recomp/release/scarlet-stable-controls-rc-20261117/launcher/assets/scarlet_launcher_background.jpg" alt="Arte do Scarlet-Recomp" width="820">
+
 # Scarlet-Recomp
 
-**Pokémon Scarlet 4.0.0 — native Windows recompilation project**
+**Pokémon Scarlet 4.0.0 no Windows.**
 
-Windows 11 · Vulkan · AOT
+Controles de PC · 60 FPS em testes · Menu F1 personalizado · Vulkan
 
-[Scarlet development branch](https://github.com/xruanzin/Scarlet-Recomp/tree/release/v1.0.0-preparation-20261101) · [Português / English](https://github.com/xruanzin/Scarlet-Recomp/tree/release/v1.0.0-preparation-20261101#readme) · [Release status](https://github.com/xruanzin/Scarlet-Recomp/blob/release/v1.0.0-preparation-20261101/docs/RELEASE-v1.0.0.md)
+[**Conhecer o projeto**](https://github.com/xruanzin/Scarlet-Recomp/tree/release/scarlet-stable-controls-rc-20261117) · [**README em português**](https://github.com/xruanzin/Scarlet-Recomp/blob/release/scarlet-stable-controls-rc-20261117/README.pt-BR.md) · [English](https://github.com/xruanzin/Scarlet-Recomp/blob/release/scarlet-stable-controls-rc-20261117/README.md) · [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases)
 
 </div>
 
 ---
 
-> [!IMPORTANT]
-> **Scarlet-Recomp v1.0.0 is in preparation.** This default branch preserves the upstream ZA Recomp foundation. **Scarlet-specific source code, launcher and current documentation live in the [active release-preparation branch](https://github.com/xruanzin/Scarlet-Recomp/tree/release/v1.0.0-preparation-20261101).**
+O Scarlet-Recomp é um port comunitário e não oficial de **Pokémon Scarlet para Windows**, com foco em controles de Xbox, PlayStation, Nintendo, teclado e mouse, ajustes gráficos e novas opções de desempenho.
 
-Scarlet-Recomp is an unofficial attempt to run **Pokémon Scarlet 4.0.0** natively on Windows using ahead-of-time recompilation and Vulkan. The game runs in local development tests; a portable release and clean-machine setup have not been fully verified.
+A versão atual do projeto está na **[branch Scarlet Controls RC](https://github.com/xruanzin/Scarlet-Recomp/tree/release/scarlet-stable-controls-rc-20261117)**. Esta branch padrão ainda mantém a base histórica do runtime; use a branch do Scarlet para ver o código e a documentação mais recentes.
 
-### Where to go
+## Destaques
 
-- **[Browse the Scarlet source and README](https://github.com/xruanzin/Scarlet-Recomp/tree/release/v1.0.0-preparation-20261101)** — current development and Windows launcher
-- **[Check the v1.0.0 release preparation](https://github.com/xruanzin/Scarlet-Recomp/blob/release/v1.0.0-preparation-20261101/docs/RELEASE-v1.0.0.md)** — installation plan and known issues
-- **[See releases](https://github.com/xruanzin/Scarlet-Recomp/releases)** — downloadable packages once published
+- **60 FPS** em testes realizados com **RTX 5060** e em testes informados com **RTX 3050**. Os resultados variam conforme o computador e a cena.
+- **30, 60, 120 e 240 FPS** no launcher; **120 e 240 FPS são experimentais** e não têm estabilidade garantida.
+- **Menu F1** em português e inglês, com tema claro e configurações de vídeo, áudio e controles.
+- **Ícones e remapeamento de controles** para Xbox, PlayStation, Nintendo e teclado/mouse.
+- **Importação dos próprios arquivos do jogo** base e atualização 4.0.0, sem distribuir conteúdo da Nintendo.
 
-The project **does not ship Pokémon game files or keys**. Eyes/eyebrows and the enrollment portrait still have known rendering issues, and 60 FPS remains experimental.
+**Problema conhecido:** o retrato do jogador pode não aparecer na ficha de matrícula no começo do jogo. É um **bug visual ainda a ser corrigido**. Outros defeitos gráficos podem ocorrer.
 
-### Credits
+## Fotos e novidades
 
-Built on work by [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) and their contributors. Developed by xruanzin, with technical assistance from ChatGPT (OpenAI). Unofficial and not affiliated with Nintendo, Game Freak or The Pokémon Company. See [LICENSE](LICENSE).
+A imagem acima é uma arte do launcher. Imagens reais do jogo e do F1 serão acrescentadas na [galeria](https://github.com/xruanzin/Scarlet-Recomp/tree/release/scarlet-stable-controls-rc-20261117/docs/showcase). Veja também as [principais mudanças](https://github.com/xruanzin/Scarlet-Recomp/blob/release/scarlet-stable-controls-rc-20261117/CHANGELOG.md).
+
+**Download:** o ZIP portátil passou por um teste básico de execução, mas a instalação completa em outro PC ainda requer validação. A release pública aparecerá em [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases) quando estiver pronta.
+
+## Créditos
+
+Desenvolvido por **[xruanzin](https://github.com/xruanzin)**, com base no trabalho de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp), [LASRecomp](https://github.com/peiikai/LASRecomp) e colaboradores. O F1 foi adaptado do menu original. Desenvolvimento com apoio de ferramentas de IA.
+
+Projeto independente, sem vínculo com Nintendo, Game Freak ou The Pokémon Company. O repositório não inclui o jogo, NSP/XCI, chaves ou arquivos proprietários.
