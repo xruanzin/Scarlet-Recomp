@@ -42,17 +42,18 @@ static int cat_rows(int cat, bool pad, Bind *out) {
     auto add = [&](int slot, const char *label, const char *section = NULL) { out[n++] = {slot, label, section}; };
     const char *up = TR("Up", "Cima"), *down = TR("Down", "Baixo"), *left = TR("Left", "Esquerda"),
                *right = TR("Right", "Direita");
-    // BIND_* slots keep their original logical meaning; change only the labels
-    // for the icon family selected in F1. Never move saved controller bindings.
+    // The four BIND_* slots are Switch logical inputs, but the controller
+    // default follows the selected Xbox/PlayStation convention in the game.
+    // Display the effective host label here, not the old Nintendo position.
     const int prompts = g_settings.prompts == PROMPTS_AUTO ? bind_prompts_auto() : g_settings.prompts;
     const bool ps = pad && prompts == PROMPTS_PLAYSTATION;
     const bool xbox = pad && (prompts == PROMPTS_XBOX || prompts == PROMPTS_STEAMDECK);
     switch (cat) {
     case CAT_BUTTONS:
-        add(BIND_A, ps ? "○" : xbox ? "B" : "A"),
-            add(BIND_B, ps ? "×" : xbox ? "A" : "B"),
-            add(BIND_X, ps ? "△" : xbox ? "Y" : "X"),
-            add(BIND_Y, ps ? "□" : xbox ? "X" : "Y"),
+        add(BIND_A, ps ? "×" : xbox ? "A" : "A"),
+            add(BIND_B, ps ? "○" : xbox ? "B" : "B"),
+            add(BIND_X, ps ? "□" : xbox ? "X" : "X"),
+            add(BIND_Y, ps ? "△" : xbox ? "Y" : "Y"),
             add(BIND_PLUS, ps || xbox ? "Start" : TR("Plus", "Mais")),
             add(BIND_MINUS, ps || xbox ? "Select" : TR("Minus", "Menos"));
         break;
@@ -217,7 +218,7 @@ static void watch_results(int fam, char *msg, size_t cap) {
     msg[0] = 0;
     if (kind == 2)
         snprintf(msg, cap, "%s moved to %s (swapped).", bind_input_name(rother),
-                 rdev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[rother], fam) : bind_key_label(g_bind_key[rother]));
+                 rdev == BIND_DEV_PAD ? bind_pad_label(bind_pad_effective(rother), fam) : bind_key_label(g_bind_key[rother]));
     if (kind == 1 || kind == 2 || kind == 5) {
         settings_save();
         launcher_prompts_refresh();  // (the game's button icons drawn again for the new bindings: runtime/ui/launcher.mm)
@@ -297,7 +298,7 @@ static void configure_inputs(float scale) {
             char val[64];
             if (waiting) snprintf(val, sizeof val, "%s...  %d", g_dev_pad ? TR("Press a button", "Aperte um botão")
                                                                           : TR("Press a key", "Aperte uma tecla"), (ms + 999) / 1000);
-            else snprintf(val, sizeof val, "%s", g_dev_pad ? bind_pad_label(g_bind_pad[b.slot], fam) : bind_key_label(g_bind_key[b.slot]));
+            else snprintf(val, sizeof val, "%s", g_dev_pad ? bind_pad_label(bind_pad_effective(b.slot), fam) : bind_key_label(g_bind_key[b.slot]));
             // the same button / key on two inputs (a hand-edited larecomp.ini): red
             const int16_t *t = g_dev_pad ? g_bind_pad : g_bind_key;
             bool dup = false;
@@ -396,12 +397,12 @@ extern "C" void controls_tab_draw(float scale) {
         snprintf(autol, sizeof autol, "Auto (%s)", names[bind_prompts_auto()]);
 #ifdef SCARLET_AOT
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
-                   TR("Choose the look of the in-game button icons, using your existing bindings. "
-                      "Xbox, PlayStation and keyboard/mouse glyphs appear as matching UI textures are reloaded. "
-                      "Unrecognised game art stays unchanged.",
-                      "Escolha o visual dos botões no jogo usando os mapeamentos atuais. "
-                      "Os ícones de Xbox, PlayStation e teclado/mouse mudam quando as texturas reconhecidas são recarregadas. "
-                      "Imagens não reconhecidas permanecem originais."));
+                   TR("Choose in-game button icons. With the four original face bindings, Xbox and PlayStation "
+                      "also use native controls: A/Cross confirms, B/Circle cancels, X/Square and Y/Triangle. "
+                      "Custom bindings stay unchanged. The original title-screen graphic is not modified in this version.",
+                      "Escolha os ícones dos botões. Com os quatro botões originais, Xbox e PlayStation também "
+                      "usam o controle nativo: A/Cruz confirma, B/Círculo cancela, X/Quadrado e Y/Triângulo. "
+                      "Mapeamentos personalizados são preservados. O gráfico original da tela inicial não é alterado nesta versão."));
 #else
         opt_choice(TR("Button icons", "Ícones dos botões"), &g_settings.prompts, names, 6, PROMPTS_AUTO,
                    TR("The button icons the game shows. Auto: the connected controller's (the keyboard's with none). "
@@ -410,11 +411,19 @@ extern "C" void controls_tab_draw(float scale) {
                       "controle). Vale a partir do próximo início."));
 #endif
     }
+#ifdef SCARLET_AOT
+    opt_toggle(TR("Battle moves by position", "Golpes por posição"), &g_settings.battle_abxy_position, false,
+               TR("Only for Nintendo layout: hold ZL to use face buttons by physical position. "
+                  "Xbox and PlayStation always keep their native A/Cross confirm layout, including in battle.",
+                  "Somente no layout Nintendo: segure ZL para usar os botões pela posição. "
+                  "Xbox e PlayStation mantêm sempre o layout nativo com A/Cruz para confirmar, inclusive em batalha."));
+#else
     opt_toggle(TR("Battle moves by position", "Golpes por posição"), &g_settings.battle_abxy_position, false,
                TR("While ZL is held, the controller's A / B / X / Y go by position (the Switch's A on the right), so each "
                   "move is on the button where the game draws it. The rest of the game keeps your bindings.",
                   "Com ZL segurado, o A / B / X / Y do controle valem pela posição (o A do Switch fica à direita), então cada "
                   "golpe fica no botão onde o jogo desenha ele. O resto do jogo mantém os seus comandos."));
+#endif
     {
         const char *const names[] = {TR("Game layout", "Layout do jogo"), TR("Controller convention", "Padrão do controle")};
         opt_choice(TR("Confirm button", "Botão de confirmar"), &g_settings.menu_confirm, names, 2, MENU_CONFIRM_CONTROLLER,
