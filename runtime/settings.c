@@ -35,6 +35,13 @@ bool gpu_feature_on(int feature, const char *env) {
 Settings g_settings = {
     .aspect = ASPECT_UNLOCKED,
     .fullscreen = false,
+#ifdef SCARLET_AOT
+    .window_w = 1920,
+    .window_h = 1080,
+#else
+    .window_w = 1280,
+    .window_h = 720,
+#endif
     .volume = 1.0f,
     .reverb = true,
     .movie_audio = true,
@@ -180,6 +187,12 @@ void settings_load(void) {
         if (fields != 2) continue;
         if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "original") ? ASPECT_ORIGINAL : ASPECT_UNLOCKED;
         else if (!strcmp(key, "fullscreen")) g_settings.fullscreen = atoi(val) != 0;
+        else if (!strcmp(key, "window_size")) {
+            int w = 0, h = 0; char extra;
+            if (sscanf(val, "%dx%d%c", &w, &h, &extra) == 2 && w >= 640 && h >= 360 && w <= 7680 && h <= 4320) {
+                g_settings.window_w = w; g_settings.window_h = h;
+            }
+        }
         else if (!strcmp(key, "volume")) g_settings.volume = (float)atof(val);
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
@@ -307,6 +320,7 @@ void settings_save(void) {
     fprintf(f, "# ZA Recomp settings (edited from the in-game menu: F1, Esc, or Minus+Plus on a controller)\n");
     fprintf(f, "aspect = %s\n", g_settings.aspect == ASPECT_ORIGINAL ? "original" : "unlocked");
     fprintf(f, "fullscreen = %d\n", g_settings.fullscreen);
+    fprintf(f, "window_size = %dx%d\n", g_settings.window_w, g_settings.window_h);
     fprintf(f, "volume = %.2f\n", g_settings.volume);
     fprintf(f, "reverb = %d\n", g_settings.reverb);
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
