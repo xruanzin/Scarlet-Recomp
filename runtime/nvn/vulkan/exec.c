@@ -6702,9 +6702,18 @@ static void draw_(CmdRec *r, bool indexed) {
     static int hair_mode = -1;
     if (hair_mode < 0) {
         const char *e = ENV("SCARLET_HAIR_MODE");
+        // Verified in Scarlet 4.0.0 (fingerprint + material 3): use albedo
+        // chroma restoration automatically in Scarlet's Windows port.
+        // SCARLET_HAIR_MODE=baseline remains available for regression.
+#ifdef SCARLET_AOT
+        hair_mode = !e ? 3 : strcmp(e, "mask") == 0 ? 1 :
+                    strcmp(e, "isotropic") == 0 ? 2 :
+                    strcmp(e, "albedo") == 0 ? 3 : 0;
+#else
         hair_mode = e && strcmp(e, "mask") == 0 ? 1 :
                     e && strcmp(e, "isotropic") == 0 ? 2 :
                     e && strcmp(e, "albedo") == 0 ? 3 : 0;
+#endif
     }
     if (hair_mode && st.program->stages[1].code_addr) {
         uint64_t fs = st.program->stages[1].code_addr;

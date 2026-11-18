@@ -1967,7 +1967,15 @@ static float party_panel(ImDrawList *dl, float x, float y, float w) {
     return 26 + ch;
 }
 
+#ifdef SCARLET_AOT
+#include "scarlet_launcher.inc"
+#endif
 extern "C" void launcher_run(const char *root) {
+#ifdef SCARLET_AOT
+    (void)root;
+    scarlet_launch_run();
+    return;
+#endif
     g_root = root;
     g_start_screen = 1;
     settings_load();

@@ -137,6 +137,15 @@ GAMELIB_BASE_ID := $(shell (cat $(GAMELIB_BASE_SRCS); echo '$(GENFLAGS) $(GAMELI
                      (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
 
 RT_OBJ   := $(patsubst runtime/%.cpp,$(B)/rt/%.o,$(patsubst runtime/%.c,$(B)/rt/%.o,$(RT_SRC)))
+# Scarlet AOT is a distinct runtime flavour: activate its launcher, exact-hair
+# compatibility shader, and version gate only for `make SCARLET_AOT=1`.
+ifneq ($(SCARLET_AOT),)
+ifeq ($(SCARLET_AOT),1)
+OSFLAGS += -DSCARLET_AOT=1
+# UIFLAGS was :=-expanded earlier in the Windows platform branch.
+UIFLAGS += -DSCARLET_AOT=1
+endif
+endif
 RTFLAGS  := -O2 -g -fno-strict-aliasing -Wall -Wno-unused-function -Iruntime -Iruntime/nvn $(DEPINC) $(OSFLAGS)
 CXXFLAGS := -O2 -g -std=c++17 -I$(IMGUI) -I$(IMGUI)/backends -Iruntime -Iruntime/nvn $(DEPINC)
 
@@ -221,6 +230,9 @@ $(GAMELIB): $(GEN_OBJ) | $(EXE)
 	mv -f $@.tmp $@
 	echo $(GAMELIB_FULL_ID) > $@.id
 
+ifeq ($(SCARLET_AOT),1)
+$(B)/rt/ui/launcher.o: runtime/ui/scarlet_launcher.inc
+endif
 $(B)/rt/ui/%.o: runtime/ui/%.mm $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(UIFLAGS) -c $< -o $@
