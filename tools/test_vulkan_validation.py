@@ -28,6 +28,9 @@ static VkDebugUtilsMessengerEXT messenger;
 static const char *scenario;
 static unsigned instance_calls, callback_calls;
 static bool requested_validation;
+VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceExtensionProperties(const char *layer, uint32_t *count, VkExtensionProperties *props) {
+    (void)layer; (void)props; *count=0; return VK_SUCCESS;
+}
 #define LOG(...) fprintf(stderr,__VA_ARGS__)
 #define FATAL(...) do { fprintf(stderr,__VA_ARGS__); fflush(stderr); _Exit(19); } while (0)
 static const char *const *SDL_Vulkan_GetInstanceExtensions(Uint32 *count) {

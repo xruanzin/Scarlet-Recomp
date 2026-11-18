@@ -5,8 +5,16 @@
 extern const uint64_t main_fn_addrs[], sdk_fn_addrs[], main_fn_count, sdk_fn_count;
 extern const GuestFn main_fn_ptrs[], sdk_fn_ptrs[];
 
+#ifdef SCARLET_AOT
+extern const uint64_t subsdk0_fn_addrs[], subsdk0_fn_count;
+extern const GuestFn subsdk0_fn_ptrs[];
+#define EXTRA_TABLES subsdk0_fn_addrs, subsdk0_fn_ptrs, &subsdk0_fn_count
+#else
+#define EXTRA_TABLES NULL, NULL, NULL
+#endif
+
 GAMELIB_EXPORT const GameLibTables *lasgame_tables(void) {
     static const GameLibTables t = {GAMELIB_ABI,  GAMELIB_ID,   main_fn_addrs,  sdk_fn_addrs,
-                                    main_fn_ptrs, sdk_fn_ptrs,  &main_fn_count, &sdk_fn_count};
+                                    main_fn_ptrs, sdk_fn_ptrs,  &main_fn_count, &sdk_fn_count, EXTRA_TABLES};
     return &t;
 }

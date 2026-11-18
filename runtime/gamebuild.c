@@ -368,6 +368,9 @@ static PlatProc start_compile(const Tools *t, const Unit *u) {
     char id[GAMELIB_FULL_ID_SIZE + 32];
     snprintf(id, sizeof id, "-DGAMELIB_ID=\"%s\"", g_full_id);
     add(&a, id);
+#ifdef SCARLET_AOT
+    add(&a, "-DSCARLET_AOT=1"); // export third NSO table in gamelib_entry.c
+#endif
     add(&a, "-c");
     add(&a, u->src);
     add(&a, "-o");
@@ -395,18 +398,46 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     char work[1100], tmp[1100];
     snprintf(work, sizeof work, "%s" SEP ".gamebuild", game_dir);
     snprintf(tmp, sizeof tmp, "%s" SEP "%s.tmp", work, GAMELIB_NAME);
-    char input_paths[6][1100], spec[4096];
+    char input_paths[7][1100], spec[4096];
     snprintf(input_paths[0], sizeof input_paths[0], "%s" SEP "exefs" SEP "main", game_dir);
     snprintf(input_paths[1], sizeof input_paths[1], "%s" SEP "exefs" SEP "sdk", game_dir);
+#ifdef SCARLET_AOT
+    snprintf(input_paths[2], sizeof input_paths[2], "%s" SEP "exefs" SEP "subsdk0", game_dir);
+    if (!file_exists(input_paths[2])) {
+        snprintf(why, why_size, "Scarlet 4.0.0 subsdk0 is missing from the updated ExeFS");
+        return false;
+    }
+    const int nso_count = 3;
+#else
+    const int nso_count = 2;
+#endif
+#ifdef SCARLET_AOT
+    const char *dfps = getenv("SCARLET_DFPS_PCHTXT");
+    if (dfps && *dfps && !file_exists(dfps)) {
+        snprintf(why, why_size, "SCARLET_DFPS_PCHTXT does not point to an existing .pchtxt file");
+        return false;
+    }
+#endif
     const char *headers[] = {"cpu.h", "simd.h", "simd_fp.h", "gamelib.h"};
-    for (int i = 0; i < 4; ++i) snprintf(input_paths[i+2], sizeof input_paths[i+2], "%s" SEP "%s", t.inc, headers[i]);
+    for (int i = 0; i < 4; ++i) snprintf(input_paths[i+nso_count], sizeof input_paths[i+nso_count],
+                                           "%s" SEP "%s", t.inc, headers[i]);
     // Generator changes should rebuild only chunks whose C changed, as in the existing incremental builder.
     // Compiler/header/flag changes invalidate every object; entry always rebuilds because it embeds the library id.
-    const char *inputs[] = {input_paths[2], input_paths[3], input_paths[4], input_paths[5], t.cc};
+    const char *inputs[] = {input_paths[nso_count], input_paths[nso_count+1],
+                            input_paths[nso_count+2], input_paths[nso_count+3], t.cc};
     // The compiler's contents identify it, so relocating the app does not discard reusable objects.
-    snprintf(spec, sizeof spec, "LASBUILD3\n%s\n%s\n%s\nzig=%d pointer=%d%s%s\n", GAMELIB_BASE_ID,
+    snprintf(spec, sizeof spec, "LASBUILD3\n%s\n%s\n%s\nzig=%d pointer=%d%s%s\nmodules=%d\n", GAMELIB_BASE_ID,
              GAMELIB_CFLAGS, GAMELIB_SHARED, t.zig, (int)sizeof(void *),  // (+ the Linux zig target: objects from
-             t.zig && ZIG_TARGET[0] ? " target=" : "", t.zig ? ZIG_TARGET : "");  // before it are rebuilt once)
+             t.zig && ZIG_TARGET[0] ? " target=" : "", t.zig ? ZIG_TARGET : "", nso_count);
+#ifdef SCARLET_AOT
+    // Do not reuse an unpatched build's generated chunks, object receipts or
+    // library identity when opt-in Dynamic FPS ASM is enabled.
+    {
+        size_t used = strlen(spec);
+        snprintf(spec + used, sizeof spec - used, "scarlet_dfps=%s\n",
+                 dfps && *dfps ? "user-asm-v1" : "off");
+    }
+#endif
     if (o->progress) o->progress(0, "Checking completed build files...");
     bool resuming = build_cache_resumable(game_dir);  // (a cancelled or interrupted build; read before open marks this one)
     BuildCache *cache = build_cache_open(game_dir, spec, inputs, 5, why, why_size);
@@ -419,9 +450,15 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         snprintf(rp, sizeof rp, "%s" SEP "gamelib_entry.receipt", work);
         update = stat(rp, &st) == 0;
     }
-    const char *gen_inputs[5] = {input_paths[0], input_paths[1], t.gen, t.hle};
-    int ngen = 4;
+    const char *gen_inputs[7] = {0};
+    int ngen = 0;
+    for (int i = 0; i < nso_count; ++i) gen_inputs[ngen++] = input_paths[i];
+    gen_inputs[ngen++] = t.gen;
+    gen_inputs[ngen++] = t.hle;
     if (t.gen_script[0]) gen_inputs[ngen++] = t.gen_script;
+#ifdef SCARLET_AOT
+    if (dfps && *dfps) gen_inputs[ngen++] = dfps;
+#endif
     if (!build_cache_prepare_generation(cache, GAMELIB_ID, gen_inputs, ngen, why, why_size)) {
         build_cache_failed(cache);
         build_cache_close(cache);
@@ -442,11 +479,11 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         t.cc, t.zig ? " cc" : "", o->jobs);
     if (gamelib_old_cpu()) LOG("[gamebuild] CPU without AVX2 / FMA / BMI2: built for x86-64-v2\n");
 
-    // 1. the generator, both modules at once; their finished files are compiled while it goes on
-    Gen gens[2] = {{.name = "main"}, {.name = "sdk"}};
-    static const char *const base[2] = {"0x7000000000", "0x7008000000"};
+    // Scarlet 4.0.0: generate all three NSO modules before game start.
+    Gen gens[3] = {{.name = "main"}, {.name = "sdk"}, {.name = "subsdk0"}};
+    static const char *const base[3] = {"0x7000000000", "0x7008000000", "0x7010000000"};
     bool ok = true;
-    for (int i = 0; i < 2 && ok; i++) {
+    for (int i = 0; i < nso_count && ok; i++) {
         Gen *g = &gens[i];
         g->exit = -1;
         snprintf(g->log, sizeof g->log, "%s" SEP "gen_%s.log", work, g->name);
@@ -466,14 +503,21 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         add(&a, base[i]);
         add(&a, g->out);
         if (i == 1) { add(&a, "--hle"); add(&a, t.hle); }
+#ifdef SCARLET_AOT
+        add(&a, "--game"); add(&a, "scarlet");
+        if (i == 0 && dfps && *dfps) {
+            add(&a, "--scarlet-dfps-pchtxt");
+            add(&a, dfps);
+        }
+#endif
         g->p = spawn(a.v, g->log);
         args_free(&a);
         if (!g->p) { snprintf(why, why_size, "the game code builder didn't start"); ok = false; }
     }
 
     Units units = {0};
-    int queued[2] = {0, 0};  // chunk files of each module put in units so far
-    bool tables[2] = {false, false};
+    int queued[3] = {0, 0, 0};  // chunk files of each module put in units so far
+    bool tables[3] = {false, false, false};
     int next = 0, jobs = o->jobs < 1 ? 1 : o->jobs > 64 ? 64 : o->jobs;
     struct { PlatProc p; int unit; } run[64];
     int nrun = 0;
@@ -491,7 +535,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         bool gens_done = true;
         double gen_frac = 0;
         unsigned long long written = 0;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < nso_count; i++) {
             Gen *g = &gens[i];
             if (g->exit < 0) {
                 read_gen_log(g);
@@ -525,7 +569,8 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
                 add_unit(&units, src, work, stem);
                 tables[i] = true;
             }
-            gen_frac += g->exit == 0 ? 0.5 : g->n ? 0.5 * (double)g->ci / (double)g->n : 0;
+            double share = 1.0 / (double)nso_count;
+            gen_frac += g->exit == 0 ? share : g->n ? share * (double)g->ci / (double)g->n : 0;
         }
         if (!ok) break;
         for (int k = 0; k < units.n; k++) written += units.u[k].bytes;
@@ -577,7 +622,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         sleep_ms(50);
     }
     for (int k = 0; k < nrun; k++) stop(run[k].p);  // (a failure: the rest is of no use - the failure shows at once)
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < nso_count; i++)
         if (gens[i].p && gens[i].exit < 0) stop(gens[i].p);
 
     // 2. link

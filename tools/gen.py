@@ -597,15 +597,45 @@ def main():
     ap.add_argument('--chunk-bytes', type=int, default=1500000)  # and about this much C (even compile times)
     ap.add_argument('--big-fn', type=int, default=100000)  # bytes of C from which a function gets its own file
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--game', choices=('auto', 'scarlet'), default='auto',
+                    help="Explicit target; scarlet never inherits ZA or LAS game patches")
+    ap.add_argument('--scarlet-dfps-pchtxt', help='Experimental: user-supplied Scarlet v4.0.0 Dynamic FPS ASM patch')
     ap.add_argument('--simd', choices=('asm', 'c'),
                     default='asm' if platform.machine().lower() in ('arm64', 'aarch64') else 'c')
     args = ap.parse_args()
+    if args.scarlet_dfps_pchtxt and args.game != 'scarlet':
+        ap.error('--scarlet-dfps-pchtxt requires --game scarlet')
 
     t0 = time.time()
     m = Module(args.name, args.nso, args.base, args.simd)
     global HOOKS, PATCHES
     main_build = Nso(os.path.join(os.path.dirname(args.nso), 'main')).build_id[:16]
-    if main_build in ZA_BUILDS:  # Pokémon Legends Z-A: its own patches, none of Link's Awakening's (nor its randomizer's)
+    if args.game == 'scarlet':
+        # Deliberately no game-specific patches until individual sites are proven for Scarlet.
+        # The build-id guard prevents accidentally lifting the base game as update 4.0.0.
+        from scarlet.preflight import KNOWN_MAIN_PREFIXES
+        expected = KNOWN_MAIN_PREFIXES['4.0.0']
+        if not main_build.startswith(expected):
+            sys.exit(f"{args.name}: Scarlet 4.0.0 expected main build {expected}, got {main_build}")
+        RANDO_CODE.clear()
+        if args.scarlet_dfps_pchtxt:
+            if args.name != 'main':
+                sys.exit("Dynamic FPS patch must only be applied to Scarlet's main module")
+            from scarlet.dfps_patch import apply_nso, PatchError
+            try:
+                patched = apply_nso(m.nso, args.scarlet_dfps_pchtxt)
+            except (OSError, UnicodeError, PatchError) as exc:
+                sys.exit(f"Scarlet Dynamic FPS validation failed: {exc}")
+            # Refresh decoded ARM64 instruction stream after patching the memory image.
+            # The original user's NSO on disk is never modified.
+            n = m.nso
+            m.words = struct.unpack(f'<{n.text[1] // 4}I',
+                                    bytes(n.image[n.text[0]:n.text[0] + n.text[1]]))
+            m.cache.clear()
+            print(f'{args.name}: experimental Scarlet 4.0.0 DFPS ASM: {patched} patches in memory', file=sys.stderr)
+        else:
+            print(f"{args.name}: Scarlet 4.0.0 (build {main_build}): unmodified 30 FPS baseline", file=sys.stderr)
+    elif main_build in ZA_BUILDS:  # Pokémon Legends Z-A: its own patches, none of Link's Awakening's (nor its randomizer's)
         RANDO_CODE.clear()
         if args.name == 'main':
             PATCHES.update(za_patches(main_build))

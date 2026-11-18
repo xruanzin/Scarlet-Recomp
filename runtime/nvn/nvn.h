@@ -34,7 +34,14 @@ typedef struct NvnTexture {
     uint32_t pool_refs;  // texture pool entries that name it (cleared when it is finalized: runtime/nvn/objects.c)
     bool format_views;   // named through a view in a format the backend can only give with a flag (Metal: PixelFormatView)
     char label[64];
+    struct NvnTexture *lifetime_next;
+    uint64_t lifetime_id;
 } NvnTexture;
+
+void nvn_texture_publish(NvnTexture *t);
+void nvn_texture_retire(NvnTexture *t);
+uint64_t nvn_texture_record_id(NvnTexture *t);
+NvnTexture *nvn_texture_resolve_recorded(NvnTexture *t, uint64_t id);
 
 // Also kept inside the guest's NVNsamplerBuilder (at +8, runtime/nvn/objects.c), which is 64 bytes: Pokémon Legends
 // Z-A builds one on the stack right below its frame record. The enums fit a byte.
@@ -54,6 +61,27 @@ typedef struct {
     uint8_t swizzle[4];
 } NvnTextureView;  // our layout inside the guest NVNtextureView
 _Static_assert(sizeof(NvnTextureView) <= 32, "NvnTextureView must fit the guest's");
+
+// Shared command payloads: recorders and both backends must agree on their ABI.
+// A pointer alone is insufficient when a persistent command list is replayed
+// after finalization, especially if the allocator reused the same address.
+typedef struct {
+    uint64_t tex[8];
+    NvnTextureView views[8];
+    uint8_t has_view[8];
+    uint64_t depth;
+    NvnTextureView dview;
+    uint8_t has_dview;
+    uint64_t tex_id[8], depth_id;
+} NvnRtRec;
+typedef struct {
+    uint64_t tex;
+    NvnTextureView view;
+    uint8_t has_view;
+    int32_t region[6];
+    uint64_t lifetime_id;
+} NvnTexRefRec;
+NvnTexture *nvn_texture_resolve_command(uint64_t ptr, uint64_t id, const char *op);
 
 // A view naming a texture (pool entry, render target, clear, copy): one in another format is told to the backend before
 // the texture is used through it.

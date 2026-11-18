@@ -1968,6 +1968,13 @@ static float party_panel(ImDrawList *dl, float x, float y, float w) {
 }
 
 extern "C" void launcher_run(const char *root) {
+#ifdef SCARLET_AOT
+    // The original Scarlet PC launcher is a *separate* Win32 executable.
+    // When the user returns to title, close this game process so that its
+    // parent ScarletLauncher.exe can restore the original screen.
+    (void)root;
+    exit(0);
+#endif
     g_root = root;
     g_start_screen = 1;
     settings_load();

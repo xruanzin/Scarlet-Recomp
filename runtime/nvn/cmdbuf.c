@@ -247,15 +247,7 @@ NVN(nvnCommandBufferSetSamplerPool) {
 }
 
 // SetRenderTargets(cmd, n, colors[], colorViews[], depth, depthView)
-// extra: { u64 tex[8]; NvnTextureView views[8]; u8 has_view[8]; u64 depth; NvnTextureView dview; u8 has_dview }
-typedef struct {
-    uint64_t tex[8];
-    NvnTextureView views[8];
-    uint8_t has_view[8];
-    uint64_t depth;
-    NvnTextureView dview;
-    uint8_t has_dview;
-} RtRec;
+typedef NvnRtRec RtRec;
 NVN(nvnCommandBufferSetRenderTargets) {
     Snap s = snap(c);
     int n = (int)s.x[1];
@@ -264,6 +256,7 @@ NVN(nvnCommandBufferSetRenderTargets) {
     const uint64_t *colors = (const uint64_t *)(uintptr_t)s.x[2], *views = (const uint64_t *)(uintptr_t)s.x[3];
     for (int i = 0; i < n; i++) {
         rt.tex[i] = colors && colors[i] ? (uint64_t)(uintptr_t)HOST(NvnTexture, colors[i]) : 0;
+        rt.tex_id[i] = nvn_texture_record_id((NvnTexture *)(uintptr_t)rt.tex[i]);
         if (views && views[i]) {
             rt.has_view[i] = 1;
             memcpy(&rt.views[i], (void *)(uintptr_t)views[i], sizeof(NvnTextureView));
@@ -271,6 +264,7 @@ NVN(nvnCommandBufferSetRenderTargets) {
         }
     }
     rt.depth = s.x[4] ? (uint64_t)(uintptr_t)HOST(NvnTexture, s.x[4]) : 0;
+    rt.depth_id = nvn_texture_record_id((NvnTexture *)(uintptr_t)rt.depth);
     if (s.x[5]) {
         rt.has_dview = 1;
         memcpy(&rt.dview, (void *)(uintptr_t)s.x[5], sizeof(NvnTextureView));
@@ -365,11 +359,13 @@ static void clear_texture(Cpu *c, int kind) {
     Snap s = snap(c);
     ClearTexRec ct = {0};
     ct.tex = (uint64_t)(uintptr_t)HOST(NvnTexture, s.x[1]);
+    uint64_t texture_id = nvn_texture_record_id((NvnTexture *)(uintptr_t)ct.tex);
     if (s.x[2]) { ct.has_view = 1; memcpy(&ct.view, (void *)(uintptr_t)s.x[2], sizeof ct.view); nvn_texture_note_view((NvnTexture *)(uintptr_t)ct.tex, &ct.view); }
     if (s.x[3]) memcpy(ct.region, (void *)(uintptr_t)s.x[3], sizeof ct.region);
     if (s.x[4]) memcpy(ct.color, (void *)(uintptr_t)s.x[4], 16);
     CmdRec *r = record(c, CMD_CLEAR_TEXTURE, sizeof ct, &s);
     r->x[6] = (uint64_t)kind;
+    r->x[5] = texture_id;  // unused x6 argument; x[6] carries the clear kind
     memcpy(r->extra, &ct, sizeof ct);
 }
 NVN(nvnCommandBufferClearTexture) { clear_texture(c, 0); }
@@ -440,9 +436,10 @@ NVN(nvnCommandBufferPauseTransformFeedback) { (void)c; static int seen_; if (!se
 NVN(nvnCommandBufferResumeTransformFeedback) { (void)c; static int seen_; if (!seen_++ && ENV("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnCommandBufferResumeTransformFeedback\n"); }
 
 // ---- copies
-typedef struct { uint64_t tex; NvnTextureView view; uint8_t has_view; int32_t region[6]; } TexRef;
+typedef NvnTexRefRec TexRef;
 static void tex_ref(TexRef *t, uint64_t tex, uint64_t view, uint64_t region) {
     t->tex = tex ? (uint64_t)(uintptr_t)HOST(NvnTexture, tex) : 0;
+    t->lifetime_id = nvn_texture_record_id((NvnTexture *)(uintptr_t)t->tex);
     if (view) { t->has_view = 1; memcpy(&t->view, (void *)(uintptr_t)view, sizeof t->view); nvn_texture_note_view((NvnTexture *)(uintptr_t)t->tex, &t->view); }
     if (region) memcpy(t->region, (void *)(uintptr_t)region, sizeof t->region);
 }
