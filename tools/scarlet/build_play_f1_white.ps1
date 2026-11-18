@@ -14,7 +14,8 @@ $branch = (& git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $branch -notin @(
     'work/scarlet-indoor-camera-20261117',
     'fix/scarlet-xbox-playstation-prompts-20261117',
-    'release/scarlet-stable-controls-rc-20261117'
+    'release/scarlet-stable-controls-rc-20261117',
+    'fix/scarlet-60fps-phase-lock-20261118'
 )) {
     throw 'Open the Scarlet camera branch or the controller-prompt fix branch before rebuilding the F1 UI.'
 }
