@@ -1,5 +1,11 @@
 // The .exe's icon (Makefile: windres -I docs/icon). ID 1: Explorer and the taskbar use the first icon resource.
+// The same Scarlet icon is used for the launcher and the game because both
+// share the scarlet.exe process. Preserve the original ZA icon otherwise.
+#if defined(SCARLET_AOT) && defined(SCARLET_CUSTOM_ICON)
+1 ICON "scarlet.ico"
+#else
 1 ICON "icon.ico"
+#endif
 // The application manifest (RT_MANIFEST 24, ID 1): UTF-8 as the process code page - a game files folder, or LAS Recomp's
 // own folder, named with non-ASCII characters wasn't found (fopen and friends read paths in the system code page)
 1 24 "windows.manifest"
