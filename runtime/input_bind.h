@@ -70,6 +70,7 @@ int bind_slot_from_name(const char *name);
 int bind_pad_from_name(const char *name);
 
 // Button prompts (runtime/nvn/texpatch.c): the controller button now driving Switch input `slot` (BIND_A..)
+int bind_pad_effective(int slot); // effective controller binding after Scarlet's native Xbox/PS default layout
 int bind_prompt_host(int slot);
 // The controller button Switch input `slot` is on in the default layout (by position: the Switch's A = east)
 int bind_pad_default(int slot);
