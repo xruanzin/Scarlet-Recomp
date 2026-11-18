@@ -1,70 +1,115 @@
 <div align="center">
 
-<img src="launcher/assets/scarlet_launcher_background.jpg" alt="Arte do launcher do Scarlet-Recomp" width="820">
+<img src="https://raw.githubusercontent.com/xruanzin/Scarlet-Recomp/main/launcher/assets/scarlet_launcher_background.jpg" width="850" alt="Arte do Scarlet-Recomp">
 
 # Scarlet-Recomp
 
-**Pokémon Scarlet no Windows, com controles para PC e novos ajustes de desempenho.**
+### Pokémon Scarlet recompilado para Windows.
 
-Port independente para **Pokémon Scarlet 4.0.0** · Windows 11 · Vulkan
+Port nativo independente de **Pokémon Scarlet 4.0.0** para PC.
 
-[English](README.md) · [Versões](https://github.com/xruanzin/Scarlet-Recomp/releases) · [Novidades](CHANGELOG.md) · [Reportar um problema](https://github.com/xruanzin/Scarlet-Recomp/issues)
+**Windows 11** · **Vulkan** · **Compilação nativa** · **Teclado e controles**
+
+[Download](https://github.com/xruanzin/Scarlet-Recomp/releases) · [Funcionalidades](#funcionalidades) · [Como jogar](#como-jogar) · [Problemas conhecidos](#problemas-conhecidos) · [English](README.md)
 
 </div>
 
 ---
 
-O **Scarlet-Recomp** é um projeto comunitário que permite executar Pokémon Scarlet de forma nativa no Windows. O jogo é preparado a partir dos arquivos da própria pessoa, sem incluir o conteúdo original no download.
+## Sobre
 
-A ideia é simples: deixar a experiência no PC mais confortável, com suporte a diferentes controles, ajustes visuais e novas opções de FPS.
+O Scarlet-Recomp leva Pokémon Scarlet ao Windows por meio de recompilação nativa, usando um runtime próprio com Vulkan em vez de emular o sistema original do Switch.
 
-> **Estado atual:** a versão de controles passou no teste do ZIP portátil e já rodou em testes locais. A instalação completa em outro Windows e algumas funções ainda precisam de mais testes. O download público será disponibilizado em **Releases** quando essa etapa estiver concluída.
+O projeto trabalha com os arquivos do próprio jogador, na versão **4.0.0**, e reúne launcher para PC, controles adaptados, opções de FPS e correções visuais específicas para Scarlet.
 
-## O que já tem
+## Funcionalidades
 
-- **Controles de PC:** suporte a teclado e mouse, Xbox, PlayStation e Nintendo, com remapeamento pelo menu F1.
-- **Ícones dos botões:** escolha o tipo de controle no F1 para exibir os símbolos compatíveis nas imagens já reconhecidas; Start/Select e os botões de ação seguem o padrão selecionado.
-- **Menu F1 próprio:** visual claro com detalhes escarlate, opções de vídeo, áudio e controles, em **português ou inglês**.
-- **30 e 60 FPS:** modo de 60 FPS disponível para testes, além da opção tradicional de 30 FPS.
-- **120 e 240 FPS:** opções presentes no launcher, **altamente experimentais**, sem garantia de estabilidade ou de velocidade correta do jogo.
-- **Ajustes gráficos:** resolução, escala de imagem, nitidez, filtros e outras opções para adaptar o visual ao computador.
-- **Launcher:** seleção dos arquivos base e atualização 4.0.0 do jogo, DLCs opcionais e chaves próprias para preparar a instalação.
-- **Contador de FPS:** opcional, ativado diretamente no F1.
+### Experiência nativa no Windows
 
-## Testes de desempenho
+- **Execução nativa:** biblioteca do jogo recompilada e runtime Windows com Vulkan.
+- **Launcher dedicado:** seleção do jogo base, atualização, DLCs opcionais e arquivos necessários para a preparação local.
+- **Importação de NSP/XCI:** os arquivos são fornecidos pelo próprio jogador; nenhum conteúdo original acompanha o port.
+- **Configurações salvas:** preferências de imagem, controles e inicialização.
 
-| Placa de vídeo | Resultado informado |
-| --- | --- |
-| **GeForce RTX 5060** | **60 FPS** em testes locais |
-| **GeForce RTX 3050** | **60 FPS** em testes informados para o projeto |
+### FPS e desempenho
 
-São resultados de testes, não requisitos mínimos ou garantia de desempenho. CPU, resolução, drivers e a cena do jogo também influenciam. O modo de 60 FPS ainda pode apresentar comportamentos inesperados em alguns momentos.
+- **30 FPS:** opção tradicional do jogo.
+- **60 FPS:** modo funcional, testado durante a jogabilidade, embora alguns problemas pontuais ainda possam acontecer.
+- **120 / 240 FPS:** disponíveis no launcher, mas **experimentais**, sem garantia de estabilidade ou de física e animações corretas.
+- **Contador de FPS, controle de quadros, tela cheia e modo janela.**
+- **Resolução interna ajustável** e opções de apresentação portátil ou na base.
 
-## Fotos
+### Gráficos
 
-A imagem acima é a **arte do launcher**. Estamos organizando uma galeria com imagens reais da jogabilidade, do menu F1 e dos controles; elas serão adicionadas aqui conforme forem registradas.
+- **Resolução e escala:** opções para aumentar a nitidez, reduzir a resolução e ajustar o enquadramento.
+- **Upscaling, sharpening e anti-aliasing**, incluindo SMAA e caminhos opcionais de AMD FSR.
+- **Sombras e iluminação:** resolução e nitidez das sombras, oclusão ambiente, iluminação indireta e reflexos na água.
+- **Filtros de textura, resolução dinâmica e HDR**, conforme o suporte da placa e da tela.
+- **Correções específicas do Scarlet:** melhorias no cabelo, céu e outros problemas visuais encontrados durante o desenvolvimento.
 
-[Ver a galeria e como enviar fotos](docs/showcase/README.md)
+Algumas opções avançadas continuam experimentais.
+
+### Controles
+
+- **Xbox, PlayStation, Nintendo, Steam Deck, teclado e mouse.**
+- **Remapeamento** de botões, teclas, mouse, gatilhos e analógicos.
+- **Confirmação e cancelamento adaptados:** A/B no padrão Xbox e ×/○ no padrão PlayStation.
+- **Ícones de botões no jogo**, nas imagens reconhecidas, incluindo equivalentes de Start e Select.
+- **Câmera com mouse e vibração dos controles.**
+
+### Outros ajustes
+
+- Interface em **inglês e português brasileiro**, com detecção do idioma do Windows.
+- Seleção de idioma do jogo entre os idiomas presentes nos arquivos do usuário.
+- Volume, áudio das cenas e reverberação.
+- Ajustes de compatibilidade e acesso aos logs.
+
+## Desempenho
+
+O port alcançou **60 FPS** nos seguintes testes informados:
+
+| Placa de vídeo | Resultado |
+| :--- | :--- |
+| **NVIDIA GeForce RTX 5060** | **60 FPS** — testes locais |
+| **NVIDIA GeForce RTX 3050** | **60 FPS** — testes informados |
+
+Os resultados não representam um benchmark nem garantem FPS constantes. Processador, resolução, drivers e região do jogo também influenciam. O caminho de 60 FPS já foi usado em testes de jogabilidade, mas ainda exige validação contínua.
+
+**120 e 240 FPS são experimentais** e podem apresentar problemas de física, animação ou ritmo do jogo.
+
+## Como jogar
+
+**Requisitos:** Windows 11 (64 bits), GPU compatível com Vulkan e drivers atualizados, arquivos próprios do jogo base e da atualização **4.0.0** e as chaves da própria instalação quando necessárias.
+
+1. Baixe o pacote de Windows pela página de [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases), assim que for publicado.
+2. Extraia o ZIP e abra **ScarletLauncher.exe**.
+3. Selecione seus NSP/XCI, atualização, DLCs opcionais e as chaves necessárias.
+4. Deixe o launcher preparar o jogo localmente e inicie.
+
+A preparação inicial pode demorar. O pacote portátil **passou em um teste básico de inicialização isolada**, mas a instalação completa em outro Windows limpo **ainda não foi validada**. Até lá, o projeto permanece candidato a lançamento.
+
+O repositório **não distribui arquivos do jogo, NSP/XCI, chaves, saves, RomFS nem DLLs compiladas a partir do jogo**.
 
 ## Problemas conhecidos
 
-O projeto ainda está em desenvolvimento. Alguns problemas visuais podem aparecer:
+- **Retrato do jogador:** a foto pode ficar preta ou não aparecer no formulário de matrícula no começo do jogo. **É um bug visual conhecido e ainda será corrigido.**
+- **Falhas gráficas pontuais:** olhos, sobrancelhas e alguns efeitos ou texturas podem aparecer incorretamente.
+- **Botão na tela inicial:** o símbolo **A** do Switch pode continuar aparecendo na frase para começar, mesmo escolhendo outro controle.
+- **FPS experimentais:** os modos de 120 e 240 FPS não são estáveis; certos problemas de ritmo, câmera ou animação também podem surgir em 60 FPS.
+- **Primeira instalação:** o fluxo completo de preparação em outros computadores ainda precisa de mais testes.
 
-- **Retrato do jogador no início:** a foto do personagem pode ficar preta ou não aparecer na ficha de matrícula. **É um bug visual conhecido, ainda a ser corrigido**, não uma opção desativada.
-- **Rostos e efeitos:** olhos, sobrancelhas e alguns efeitos gráficos podem apresentar falhas em cenas específicas.
-- **Símbolo na tela inicial:** a frase *“PRESSIONE A PARA COMEÇAR”* pode continuar mostrando o ícone original do Switch, mesmo com outro controle selecionado no F1.
-- **FPS acima de 60:** os modos 120 e 240 FPS são experimentais e podem afetar animações, física e velocidade do jogo.
+Encontrou um problema reproduzível? [Abra uma issue](https://github.com/xruanzin/Scarlet-Recomp/issues).
 
-## Como começar
+## Desenvolvimento
 
-Quando um pacote público estiver disponível, ele ficará na página de [Releases](https://github.com/xruanzin/Scarlet-Recomp/releases). É necessário ter **Windows 11 (64 bits)**, placa compatível com Vulkan, os **arquivos próprios** do jogo base e da atualização **4.0.0** e as chaves da sua instalação quando solicitadas.
+O código inclui runtime Windows, launcher, importador, remapeamento dos controles, ajustes gráficos e ferramentas de distribuição.
 
-O launcher reúne as ferramentas para preparar o jogo localmente. O primeiro processo pode demorar; ainda estamos validando todo o fluxo fora do computador de desenvolvimento.
-
-O repositório **não disponibiliza NSP/XCI, chaves, saves, arquivos do jogo ou a DLL compilada a partir dele**.
+Consulte o [guia de compilação](docs/BUILD-windows.md), os [requisitos da versão](docs/RELEASE-DEPENDENCIES-v1.0.0.md) ou explore o [código-fonte](https://github.com/xruanzin/Scarlet-Recomp).
 
 ## Créditos
 
-Projeto desenvolvido por **[xruanzin](https://github.com/xruanzin)**, com base no trabalho de [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp) e [LASRecomp](https://github.com/peiikai/LASRecomp) e seus colaboradores. O F1 foi adaptado a partir do menu original desses projetos. Desenvolvimento com apoio de ferramentas de IA.
+**Scarlet-Recomp** é desenvolvido e mantido por **[xruanzin](https://github.com/xruanzin)**.
 
-Projeto não oficial, sem vínculo com Nintendo, Game Freak ou The Pokémon Company. Consulte a [licença](LICENSE) e os avisos das dependências.
+Baseado no trabalho de **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)**, **[LASRecomp](https://github.com/peiikai/LASRecomp)** e seus colaboradores, com adaptações próprias para Scarlet. O desenvolvimento contou com auxílio do ChatGPT.
+
+Projeto de fãs **não oficial**, sem vínculo com Nintendo, Game Freak ou The Pokémon Company. Todo o conteúdo Pokémon pertence aos seus respectivos proprietários. Consulte [LICENSE](LICENSE) e as licenças das dependências.
