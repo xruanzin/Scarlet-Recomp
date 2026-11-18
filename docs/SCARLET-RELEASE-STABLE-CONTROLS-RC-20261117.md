@@ -43,10 +43,19 @@ cd "D:\Scarlet-Recomp-Window-Test"
 git status --short
 git fetch origin "refs/heads/release/scarlet-stable-controls-rc-20261117"
 git switch -c release/scarlet-stable-controls-rc-20261117 FETCH_HEAD
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\build_play_f1_white.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\prepare_stable_controls_zip.ps1
 ```
 
-O script local recompila `scarlet.exe` e preserva a DLL AOT instalada. Ele **não** cria o pacote ZIP final. Não crie uma tag `stable` nem publique uma release até passar pela validação acima.
+O empacotador da RC chama a compilação de release, inclui `ScarletLauncher.exe`, `scarlet.exe`, o importador, gerador AOT e Zig para que cada jogador prepare a própria cópia legalmente obtida, incorpora estas notas no arquivo, fecha a auditoria de dependências e realiza um teste portátil. Ele **não distribui** `lasgame.dll`, NSP/XCI, keys, saves ou game data.
+
+**Arquivos gerados no PC do mantenedor:**
+
+- `build/dist/Scarlet-Recomp-Controls-RC-Windows-x64.zip`
+- `build/dist/Scarlet-Recomp-Controls-RC-Windows-x64.zip.sha256`
+
+Se as ferramentas e a build completa em `build/scarlet/eb6deb908752b9c6` já estiverem prontas, use `-UsePreparedBuild` para apenas empacotar; não use esse modo quando os executáveis forem de uma branch anterior. O teste automático confirma que o executável abre numa pasta isolada e reconhece o ambiente de compilação, mas **não** substitui o teste de importação e jogo num Windows limpo.
+
+Não crie tag `stable` nem publique uma release até passar pela validação acima.
 
 ## Changelog público sugerido
 
