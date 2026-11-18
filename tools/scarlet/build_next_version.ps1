@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
+    [string]$BuildDirectory = '',
     [switch]$SkipImporter,
     [switch]$SkipRuntime,
     [string]$IconPath = '',
@@ -11,8 +12,22 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location $repo
-$bin = Join-Path $repo "build\scarlet\$BuildId"
-if (!(Test-Path $bin)) { throw "Nao achei a pasta AOT: $bin" }
+# The current working Scarlet installation lives in build/window-full-20261112.
+# Keep compatibility with the older build/scarlet/<id> tree for maintainers.
+if ($BuildDirectory) {
+    $bin = (Resolve-Path -LiteralPath $BuildDirectory -ErrorAction Stop).Path
+    $prefix = $repo.TrimEnd('\') + '\'
+    if (!$bin.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "BuildDirectory must be inside the Scarlet-Recomp clone: $bin"
+    }
+    $build = $bin.Substring($prefix.Length).Replace('\', '/')
+} else {
+    $build = "build/scarlet/$BuildId"
+    $bin = Join-Path $repo ("build\scarlet\" + $BuildId)
+}
+if (!(Test-Path -LiteralPath $bin -PathType Container)) {
+    throw "Nao achei a pasta da build Scarlet: $bin"
+}
 if (!(Test-Path (Join-Path $bin 'lasgame.dll'))) {
     throw 'lasgame.dll ausente; este script so atualiza o runtime, nao recompila a AOT.'
 }
@@ -134,8 +149,14 @@ if (!$SkipRuntime) {
     }
     $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
     $env:MSYSTEM = 'UCRT64'
-    $build = "build/scarlet/$BuildId"
-    & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe" "$build/ScarletLauncher.exe"
+    # In the already-working window-full tree use the same Make invocation
+    # that successfully rebuilds the F1 input layer. Do not require an older
+    # generated-scarlet/<id> folder or regenerate the game-derived AOT DLL.
+    if ($BuildDirectory) {
+        & make -j2 SCARLET_AOT=1 "B=$build" "$build/scarlet.exe" "$build/ScarletLauncher.exe"
+    } else {
+        & make -j2 SCARLET_AOT=1 "GEN=generated-scarlet/$BuildId" "B=$build" "$build/scarlet.exe" "$build/ScarletLauncher.exe"
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar Scarlet runtime/launcher Win32' }
     if (!(Test-Path -LiteralPath (Join-Path $bin 'ScarletLauncher.exe'))) {
         throw 'ScarletLauncher.exe nao foi gerado'
