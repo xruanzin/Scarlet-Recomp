@@ -2129,6 +2129,7 @@ static inline const GWin *gwin(void) {
 // bytes of the window the game has set up: the heap size, or the whole physical region
 static uint64_t gwin_want(void) { return gwin()->phys ? gwin_.max : kernel_heap_size(); }
 
+static uint64_t hmix(uint64_t h, const void *p, size_t n); // forward declaration; definition below
 static void gmem_window_get(uint64_t *lo, uint64_t *len);  // (the guest-heap import window, below)
 // Translates both stages (false: failed, logged). Holds the translator for the whole program.
 static bool translate_program_now(Prog *p) {
@@ -2142,6 +2143,32 @@ static bool translate_program_now(Prog *p) {
         p->fkey.vs_out_mask = p->vi->out_mask;
         p->fi = p->code[1] ? maxwell_translate((const uint8_t *)(uintptr_t)p->code[1], p->cmax[1], STAGE_FRAGMENT, &p->fkey)
                            : maxwell_empty_fragment();
+    }
+    // Provenance from the F9 captures (two scene frames). Dump only these original
+    // game-derived fragment shaders; never commit the generated GLSL or assembly.
+    // They live under the isolated LARECOMP_DATA_ROOT selected by graphics_verify.ps1.
+    if (ENV("SCARLET_DUMP_FOCUS_SHADERS") && p->code[1] && p->fi && p->fi->msl) {
+        uint64_t hash = hmix(1469598103934665603ull,
+                             (const void *)(uintptr_t)(p->code[1] + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull || hash == 0x9543b220d1d35f7bull ||
+            hash == 0x2076c99beec00951ull) {
+            mkdir("build", 0755);
+            mkdir("build/scarlet-focus", 0755);
+            char path[128];
+            snprintf(path, sizeof path, "build/scarlet-focus/fs_%016llx_%u.frag",
+                     (unsigned long long)hash, (unsigned)p->fkey.scarlet_hair_mode);
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                fputs(p->fi->msl, f);
+                fclose(f);
+                LOG("[scarlet-focus] fs %016llx -> %s\n", (unsigned long long)hash, path);
+            } else {
+                LOG("[scarlet-focus] cannot write %s\n", path);
+            }
+            // maxwell_disassemble() is a no-op stub in this runtime; do not
+            // create zero-byte .nvasm files or misleading "saved" log lines.
+            // The generated GLSL above is the supported diagnostic export.
+        }
     }
     if (ENV("LARECOMP_DUMP_GLSL")) {  // (debug) build/glsl/<code address>.{vert,frag}[.asm]: source and disassembly
         mkdir("build/glsl", 0755);
@@ -5629,7 +5656,40 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
     }
     if (h && st.spool && tsc < (uint32_t)st.spool->count) {
         NvnSamplerDesc *sd = &((NvnSamplerDesc *)st.spool->entries)[tsc];
-        smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);  // (integer texels: unfiltered)
+        // Scarlet sky provenance: the 480x270 sky pass samples a 32x128x32
+        // volume through t0, then it is composed at 1920x1080. A/B only the
+        // volume sampler's spatial interpolation; no shader or global filtering
+        // changes. "linear" means linear texel/volume filtering with the SAME
+        // mip selection class (nearest mip), "nearest" forces point sampling.
+        // Determine if horizontal bands come from 3D slice filtering before
+        // proposing any game-wide change. Disabled unless opted in.
+        static int sky_3d_filter = -1;
+        if (sky_3d_filter < 0) {
+            const char *e = ENV("SCARLET_SKY_3D_FILTER");
+            sky_3d_filter = e && strcmp(e, "linear") == 0 ? 1 :
+                            e && strcmp(e, "nearest") == 0 ? 2 : 0;
+        }
+        if (sky_3d_filter && stage == STAGE_FRAGMENT && i == 0 &&
+            st_->type == TEXTYPE_3D && !st_->shadow && !st_->stencil &&
+            g_cur_fs_hash == 0x9543b220d1d35f7bull) {
+            NvnSamplerDesc trial = *sd; // do not modify guest descriptor or cached state
+            trial.mag_filter = sky_3d_filter == 1 ? 1 : 0;
+            trial.min_filter = sky_3d_filter == 1 ? 3 : 2;
+            trial.backend = NULL; // vk_sampler creates/caches its own matching variant
+            trial.backend_gen = 0;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-sky] 3D t0 exact FS %016llx filter %s (guest min %u mag %u, wrap %u/%u/%u)\n",
+                    (unsigned long long)g_cur_fs_hash,
+                    sky_3d_filter == 1 ? "linear" : "nearest",
+                    sd->min_filter, sd->mag_filter,
+                    sd->wrap[0], sd->wrap[1], sd->wrap[2]);
+            }
+            smp = vk_sampler(&trial);
+        } else {
+            smp = st_->stencil || st_->sint ? vk_sampler_nearest(sd) : vk_sampler(sd);
+        }
     }
     {   // (debug) LARECOMP_CS_DUMMY_TEX=<compute code hex>: that compute shader samples 1x1 black textures
         static uint64_t dummy_cs = ~0ull;
@@ -5658,6 +5718,25 @@ static void texture_info(int stage, ShaderInfo *si, int i, VkDescriptorImageInfo
         shadow_slot_check(stage, st_, i, h, tic, ent, ent && ent->tex ? (naliases ? alias_read(ent->tex) : ent->tex) : NULL, &view);
     if (!view) view = vk_dummy_view(st_->type);
     if (!smp) smp = vk_default_sampler(!st_->stencil && !st_->sint);
+    // The sky volume can be CPU-uploaded or produced by guest GPU commands.
+    // A block-depth deswizzle experiment only affects CPU-uploaded volumes.
+    // Log this provenance once so a missing raw dump is never misdiagnosed.
+    if (stage == STAGE_FRAGMENT && i == 0 && st_->type == TEXTYPE_3D &&
+        g_cur_fs_hash == 0x9543b220d1d35f7bull &&
+        (ENV("SCARLET_SKY_VOLUME_DUMP") || ENV("SCARLET_SKY_VOLUME_DEPTH"))) {
+        static bool reported_volume;
+        if (!reported_volume) {
+            reported_volume = true;
+            NvnTexture *sky = ent ? ent->tex : NULL;
+            TexBackend *vb = sky ? (TexBackend *)sky->backend : NULL;
+            LOG("[scarlet-sky] volume binding: tex %p guest %#llx 32x128x32 fmt %#x; gpu_owned %d uploaded %d block height %u block depth %u\n",
+                (void *)sky, (unsigned long long)(sky ? sky->addr : 0),
+                sky ? sky->format : 0, vb ? vb->gpu_owned : -1,
+                vb ? vb->uploaded : -1,
+                sky ? sky->layout.block_height_log2 : 0,
+                sky ? sky->layout.block_depth_log2 : 0);
+        }
+    }
     *out = (VkDescriptorImageInfo){smp, view, VK_IMAGE_LAYOUT_GENERAL};
     scarlet_sky_audit_binding(stage, st_, i, h, ent, view);
 }
@@ -6616,6 +6695,31 @@ static void draw_(CmdRec *r, bool indexed) {
     for (int i = 0; i < st.rt.ncolor; i++) if (st.rt.color[i]) fkey.rt_kind[i] = (uint8_t)rt_kind(st.rt.color[i]->format);
     vkey.stencil_slots = stencil_slots(0, &vkey.sint_slots);
     fkey.stencil_slots = stencil_slots(1, &fkey.sint_slots);
+    // Completely opt-in experiment. Fingerprint only the known deferred-lighting
+    // program from the captures, never all hair/scene materials or any other FS.
+    // Mirror into vkey because the renderer's fast program/pipeline caches key
+    // the full vkey and selected fkey fields, not the whole fkey struct.
+    static int hair_mode = -1;
+    if (hair_mode < 0) {
+        const char *e = ENV("SCARLET_HAIR_MODE");
+        hair_mode = e && strcmp(e, "mask") == 0 ? 1 :
+                    e && strcmp(e, "isotropic") == 0 ? 2 :
+                    e && strcmp(e, "albedo") == 0 ? 3 : 0;
+    }
+    if (hair_mode && st.program->stages[1].code_addr) {
+        uint64_t fs = st.program->stages[1].code_addr;
+        uint64_t hash = hmix(1469598103934665603ull,
+                              (const void *)(uintptr_t)(fs + 0x30), 0x200);
+        if (hash == 0xaa68a5939321c84aull) {
+            vkey.scarlet_hair_mode = fkey.scarlet_hair_mode = (uint8_t)hair_mode;
+            static bool reported;
+            if (!reported) {
+                reported = true;
+                LOG("[scarlet-hair] exact FS %016llx mode %s (experimental, not a proven fix)\n",
+                    (unsigned long long)hash, hair_mode == 1 ? "mask" : hair_mode == 2 ? "isotropic" : "albedo");
+            }
+        }
+    }
     if (xfb_on && st.program->stages[0].control) {  // the program's transform feedback layout (its control section)
         const uint8_t *ctl = st.program->stages[0].control;
         for (int b = 0; b < 4; b++) {

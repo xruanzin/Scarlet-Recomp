@@ -115,3 +115,262 @@ Overlays das três capturas: 30 FPS; GPU 21–26%, CPU 32–43%, RAM aproximadam
 | Cabelo | **NÃO CORRIGIDO** | Falta referência da cor escolhida e shader/material isolado. |
 | Céu | **NÃO CORRIGIDO** | Origem/pass ainda não identificados; nenhum workaround aplicado. |
 | Instrumentação | **IMPLEMENTADA, validação pendente** | Código publicado em branch separada; sem compilação ou GPU nesta sessão. |
+
+
+## 10. Evidência F9 real e experimentos isolados (30/10/2026)
+
+Este suplemento substitui a antiga pendência de identificar os shaders. As capturas fornecidas
+pelo desenvolvedor ocorreram nos render frames **9231** e **14241**, com `[debug] F9 armed`,
+`[debug] capturing render frame`, `[pass]` e `[vk] saved`.
+O pacote analisado possui 249 PNGs; não se adiciona nenhum PNG, log completo,
+shader gerado ou dado de jogo ao repositório.
+
+**Identificação por draw trace e saída F9:**
+
+| Fase | Fragment fingerprint | Prova |
+|---|---|---|
+| Deferred lighting / cabelo | `aa68a5939321c84a` | FS de 14 texturas com destino em RT 1920x1080; presente também no scarlet_pc |
+| Céu intermediário | `9543b220d1d35f7b` | FS de 3 texturas com destino 480x270; `pass_017`/`pass_123` exibem degraus horizontais |
+| Composição posterior | `2076c99beec00951` | Consome RT 480x270 como entrada (slot 3), desenha em 1920x1080 |
+
+O primeiro input do shader `9543...` é uma textura **3D 32x128x32**,
+não uma textura 2D 32x128; os outros dois são 2D 256x64 e 256x256.
+É necessário conferir coordenadas de amostragem, slices e a aritmética no shader
+traduzido antes de declarar a causa. O render target do céu é FP32 e o problema
+precede a composição; um dither genérico de 8 bits **não é** correção justificada.
+
+No repositório antigo, `docs/SCARLET-HAIR-CAPTURE.md` relata que a primeira
+tentativa isotrópica não eliminou o defeito azul/roxo. Portanto a nova variante
+é **uma repetição experimental do caminho anterior**, não correção confirmada.
+
+### Nova instrumentação: source / material A/B
+
+Esta branch preserva o comportamento baseline por padrão.
+O material 3 só é marcado se o programa exato `aa68...` contiver a
+instrução unsigned BFE conhecida `r62 = bfe_u(r47, 0x00000303u)`.
+Qualquer outra assinatura exibe `[scarlet-hair] ... NOT FOUND` e não pinta pixels.
+
+- `-HairMode baseline`: nenhum shader alterado.
+- `-HairMode mask`: marca apenas os fragmentos que executarem o branch de material 3,
+  em magenta. **Serve para provar a máscara, não como render final.**
+- `-HairMode isotropic`: reaplica o redirecionamento simplificado do antigo experimento
+  ao material 3; pode produzir alteração visual errada e só serve para comparação.
+- `-DumpFocusShaders`: grava GLSL traduzido **somente** dos fingerprints de cabelo,
+  céu e compositor em `userdata/build/scarlet-focus/fs_<hash>_<mode>.frag` e `fs_<hash>.nvasm` de cada run.
+
+Os dois modos experimentais são isolados na identidade de programa e cache
+(`ShaderKey.scarlet_hair_mode` espelhado na vertex key), sem tocar na AOT e
+sem alterar shaders de outros materiais. O código de geração e os PNGs
+ficam sob a pasta de execução isolada, não em commits públicos.
+
+~~~powershell
+cd "D:\Scarlet-Recomp"
+$env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;" + $env:PATH
+$env:MSYSTEM = "UCRT64"
+$build = "build/scarlet/eb6deb908752b9c6"
+make -j2 SCARLET_AOT=1 GEN=generated-scarlet/eb6deb908752b9c6 B=$build "$build/scarlet.exe"
+if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar runtime" }
+
+# Baseline: shader original e dump focado, sem precisar apertar F9
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -DumpFocusShaders
+
+# Segundo run isolado: apenas material ID 3 em magenta
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode mask -DumpFocusShaders
+
+# Opcional, somente apos avaliar mascara:
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode isotropic -DumpFocusShaders
+~~~
+
+No mesmo save, câmera e hora do jogo, use F10 para gerar um screenshot
+se precisar comparar. F9 pesado não é necessário para o export GLSL.
+Procure a última pasta em `build/scarlet-graphics-runs/<timestamp>/userdata/build/scarlet-focus`;
+para a máscara, confira `[scarlet-hair]` no `stderr.log`.
+**Limites:** estas mudanças não foram compiladas em Windows nem aprovadas
+por comparação visual no instante do commit; nenhuma correção gráfica é reivindicada.
+
+
+## 11. Follow-up with mask-mode F9 capture — expected pink and sky unchanged
+
+The supplied `stderr(4).log` reports `[scarlet-hair] exact FS ... mode mask` and
+`[scarlet-hair] mode 1 material-3 BFE extractor found`. The uploaded `build.zip`
+shows the hair/hat region magenta in the mask test (e.g. pass_050),
+so the diagnostic successfully tags that portion of the scene. The magenta
+removes visible appearance by design; **it is NOT the new hair colour fix**.
+Restoring `-HairMode baseline` reverts the diagnostic tint without a rebuild.
+
+The same ZIP has sky stripes already in the 480x270 `pass_017` and in the
+later composite (e.g. `pass_043`). No previous test modified the sky shader or
+its sampler, therefore seeing unchanged stripes is expected.
+
+The uploaded focus GLSL shows the sky shader uses TWO `texture(t0, vec3(...))`
+samples from a 3D 32x128x32 texture. Its auxiliary textures t1 and t2 are 2D.
+The previous focus `.nvasm` files were zero bytes because
+`maxwell_disassemble()` is a no-op stub in this runtime. The diagnostic
+export was corrected to save GLSL only rather than create empty files.
+
+### Targeted sky 3D filtering A/B, disabled by default
+
+To test whether 3D texel/layer interpolation is responsible for the banding,
+the Vulkan sampler for the **exact shader hash** `9543b220d1d35f7b`,
+fragment slot `t0`, and **3D texture only** may be overridden.
+This leaves all shader math, texture data, other draw programs and the AOT
+unchanged. It makes a copied sampler descriptor and never changes the
+guest descriptor. The modes intentionally preserve the nearest-mip class.
+
+- `-Sky3DFilter baseline`: guest sampler, default/no change
+- `-Sky3DFilter linear`: linear within the sampled 3D texture/mip
+- `-Sky3DFilter nearest`: point sampling (negative A/B control)
+
+~~~powershell
+cd "D:\Scarlet-Recomp"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode baseline -Sky3DFilter linear
+~~~
+
+Compare F10 screenshots on the same save/camera and inspect `[scarlet-sky]`
+for the original min/mag filter values. If the sky looks the same **and the
+original sampler was already linear**, then texture point sampling is unlikely
+to explain the stripes; investigate missing 3D layers/upload, coordinates and
+shader arithmetic instead. This is an **experiment, not a verified visual fix**.
+
+
+### Hair material-3 colour restoration candidate (opt-in, not a confirmed fix)
+
+After the mask A/B identified the affected hair pixels, a separate
+`-HairMode albedo` was introduced for the *exact* deferred-lighting FS
+`aa68a5939321c84a`. It retains the **guest-computed lighting luminance**
+and restores **G-buffer albedo chroma from t4** only for pixels whose
+stencil BFE has material ID 3. It reuses the method in
+`xruanzin/scarlet_pc`, with the guard that the shader really contains
+the fingerprinted BFE extraction.
+
+The original isotropic experiment was not a proven visual solution,
+so this new mode does **not** change the guest's material branch. The
+normal `-HairMode baseline` and the magenta `mask` remain unchanged.
+Because this is a chroma-reconstruction approximation, directional
+highlights and hues may still differ from original Switch output.
+Only compare on the same scene/save with F10 screenshots.
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo -Sky3DFilter linear
+~~~
+
+This test applies two independent, *fingerprint-scoped* experiments to
+different shaders in the same isolated run. If one improves and the
+other doesn't, A/B them separately before enabling either by default.
+Neither is a verified permanent fix. Do not change the functional branch.
+
+## 12. Hair visually confirmed; sky 3D memory provenance (user test follow-up)
+
+User reported `-HairMode albedo` fixes the observed hair colour. This is visual
+confirmation in their scene, not proof that it is pixel-perfect in all scenes.
+**Do not replace or delete this opt-in hair mode while diagnosing sky.**
+
+Actual captured sky sampler `[skyaudit]` for FS `9543b220d1d35f7b`,
+fragment t0, was `min_filter=3`, `mag_filter=1`, wrap `7/7/7`;
+`runtime/nvn/vulkan/textures.c` maps those to linear filter for both min
+and mag. Therefore `-Sky3DFilter linear` was equivalent to the original guest
+sampling and is not evidence of a fix. The severe horizontal dark bands in
+`pass_017` are much larger than the 10-/11-bit quantization at the end of
+the GLSL, so removing the final `floor()` blindly is not supported.
+
+A separate candidate root cause is the default Tegra 3D GOB block depth:
+`runtime/nvn/tegra.c` currently sets `block_depth_log2=5` (32 stacked
+slices) for 32x128x32. Tegra descriptors can represent different Z block
+depths, so an incorrect assumption might shuffle data among 3D slices.
+**Not yet proved.** The new opt-in `-SkyVolumeDepth baseline|0|1|2|3|4|5`
+substitutes the deswizzle block depth only for
+3D `32x128x32` format `0x29`, not for any hair or other textures.
+The default baseline remains untouched. A single experiment with
+`-SkyVolumeDump` saves the raw guest-tiled 1MiB input and the resulting
+RGBA16F linear volume for offline inspection. No F9 or full frame dumps needed.
+
+IMPORTANT: the volumetric texture could be **GPU-generated** instead of
+CPU-uploaded. The focused `[scarlet-sky] volume binding` log now records
+`gpu_owned` and `uploaded`. If `gpu_owned=1` and no raw file is
+produced, the CPU deswizzle experiment cannot affect it; next inspect
+GPU rendering/compute writes to the volume, not the Tegra upload path.
+
+### Local validation (Windows 11)
+
+After `git fetch` / `git merge --ff-only FETCH_HEAD` on this diagnostic
+branch and an incremental `scarlet.exe` build:
+
+~~~powershell
+# Preserve the hair improvement while probing ONLY the sky volume:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo -SkyVolumeDepth 0 -SkyVolumeDump
+
+# The run path is printed by graphics_verify.ps1. When the game closes:
+$run = Get-ChildItem '.\build\scarlet-graphics-runs' -Directory |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$focus = Join-Path $run.FullName 'userdata\build\scarlet-focus'
+Select-String (Join-Path $run.FullName 'stderr.log') -Pattern '\[scarlet-sky\]'
+if (Test-Path (Join-Path $focus 'sky_volume_tiled_rgba16f_32x128x32.bin')) {
+  python '.\tools\scarlet\analyze_sky_volume.py' (Join-Path $focus 'sky_volume_tiled_rgba16f_32x128x32.bin') --png (Join-Path $focus 'sky_volume_layouts.png')
+}
+~~~
+
+Keep F10 screenshots at same camera for visually comparing with the
+baseline. The offline analyzer compares block-depth `0..5` numerically
+and creates one contact sheet; smoother scores are **diagnostic clues,
+not proof**, and should never automatically select a production fix.
+If depth 0 corrupts the sky, revert with `-SkyVolumeDepth baseline`;
+the original shader and hair-albedo mode remain unchanged.
+
+## 13. Sky visibly fixed — verified 30/10/2026
+
+User supplied `shot_02572.png`, `stderr(5).log`,
+`sky_volume_linear_rgba16f_32x128x32.bin`,
+`sky_volume_tiled_rgba16f_32x128x32.bin` and
+`sky_volume_layouts.png` after running the 3D volume block-depth
+experiment at **`-SkyVolumeDepth 0`**, with **`-HairMode albedo`**.
+
+**Visible result:** The large horizontal sky bands have disappeared from the
+daytime seaside scene, while clouds remain intact and the previously corrected
+hair still appears with natural color. This is a user-observed correction for
+this captured scene; verify other weather/time-of-day scenes before merging to
+the functional branch.
+
+**Runtime confirmation:**
+
+- `[scarlet-sky] sky volume 32x128x32 fmt 0x29; unpack block height 4 depth 0 (guest assumed depth 5), raw 1048576 bytes`
+- `[scarlet-sky] volume binding: ... gpu_owned 0 uploaded 1 block height 4 block depth 5` confirms the volume was uploaded from CPU game texture memory, and the actual corrected deswizzle ran during upload.
+- `[scarlet-hair] mode 3 material-3 BFE extractor found` confirms hair-mode albedo was active concurrently.
+- The F10 screenshot was saved at game frame 2572.
+
+**Offline check:** Deswizzling the supplied 1 MiB raw tiled texture
+with block depth 0 generates a byte-for-byte match with the uploaded
+1 MiB linear texture. For all six block-depth interpretations using
+RGBA16F, compare mean absolute difference between adjacent **Z layers**
+over RGB values:
+
+| block-depth log2 | adjacent-Z mean absolute difference |
+|---|---:|
+| 0 (corrected) | 0.1120 |
+| 1 | 0.3616 |
+| 2 | 0.5195 |
+| 3 | 0.5309 |
+| 4 | 0.5219 |
+| 5 (legacy assumption) | 0.5192 |
+
+Thus the observed corrected layout is ~78% more spatially continuous across
+Z than legacy block depth 5. Together with the visual F10 screenshot, this
+strongly supports a guest-layout mismatch as the cause of the bands.
+
+**Implementation consolidation:** The exact 3D texture predicate
+`t->target==2 && t->format==0x29 && 32x128x32` now
+defaults to `u.bd=0` in `runtime/nvn/vulkan/textures.c`; this DOES NOT
+alter the generic 3D layout for any other texture. The explicit diagnostic
+override `SCARLET_SKY_VOLUME_DEPTH=5` / `-SkyVolumeDepth 5` restores
+legacy behavior for A/B and rollback without recompilation. Binary dumping
+remains entirely opt-in. Hair remains selectable with
+`-HairMode albedo`; no generic deferred shading paths were changed.
+
+A normal isolated run with the confirmed fixes is now:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\scarlet\graphics_verify.ps1 -HairMode albedo
+~~~
+
+The new default depth-0 code has **not yet been recompiled and rechecked**
+on the user's Windows system since this commit; the visual proof comes from
+the immediately preceding diagnostic build with the explicit depth-0 flag.
