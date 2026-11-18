@@ -4,7 +4,8 @@
 param(
     [string]$PortableDirectory = '',
     [string]$SourceExe = '',
-    [switch]$SkipLaunch
+    [switch]$SkipLaunch,
+    [switch]$MatchWorkingFlags
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -79,12 +80,16 @@ if ($fromHash -ne $oldHash) {
 Write-Host 'Os saves, larecomp.ini, scarlet-games, DLL AOT e preferencias do launcher NAO foram alterados.'
 if ($SkipLaunch) { return }
 
-# The working playtest used these settings. Apply them only to the child
-# launcher process; do not change the saved config or user data root.
+# First compare the patched EXE with the portable's own settings and
+# game files. The optional switch matches the successful developer run's
+# runtime flags, without touching any config files or saves.
 $env:SCARLET_PHASE_LOCK = '1'
-$env:SCARLET_INDOOR_CAMERA_60 = '1'
-$env:SCARLET_NORMALIZE_LSTICK = '1'
-$env:LARECOMP_GPU_OVERLAP = '0'
+if ($MatchWorkingFlags) {
+    $env:SCARLET_INDOOR_CAMERA_60 = '1'
+    $env:SCARLET_NORMALIZE_LSTICK = '1'
+    $env:LARECOMP_GPU_OVERLAP = '0'
+    Write-Host 'Extra: aplicando flags da sessao de desenvolvimento APENAS a este teste.'
+}
 Remove-Item Env:LARECOMP_DATA_ROOT -ErrorAction SilentlyContinue
 Remove-Item Env:LARECOMP_GAME_LIB -ErrorAction SilentlyContinue
 Write-Host 'Abrindo a mesma pasta portable, com o mesmo save dela. Selecione 60 FPS no launcher.' -ForegroundColor Green
