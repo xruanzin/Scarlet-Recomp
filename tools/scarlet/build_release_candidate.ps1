@@ -5,6 +5,7 @@
 param(
     [string]$BuildId = 'eb6deb908752b9c6',
     [switch]$CreateDraft,
+    [switch]$ControlsRC,
     [string]$PythonExe = ''
 )
 Set-StrictMode -Version Latest
@@ -12,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $builder = Join-Path $root 'tools\scarlet\build_next_version.ps1'
 $packager = Join-Path $root 'tools\scarlet\create_release_zip.ps1'
+if ($ControlsRC -and $CreateDraft) { throw 'This Controls RC must not be published automatically.' }
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $builder -BuildId $BuildId
 if ($LASTEXITCODE -ne 0) { throw 'Scarlet Windows build failed; release package not created.' }
 
@@ -260,7 +262,9 @@ if (!(Test-Path -LiteralPath (Join-Path $root 'build\zig-slim\zig.exe'))) {
         if ($LASTEXITCODE -ne 0) { throw 'Preparing portable Zig compiler failed' }
     } finally { Pop-Location }
 }
-if ($CreateDraft) {
+if ($ControlsRC) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -ControlsRC
+} elseif ($CreateDraft) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId -CreateDraft
 } else {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $packager -BuildId $BuildId
