@@ -1794,6 +1794,23 @@ void backend_present_now(NvnTexture *t, uint64_t frame) {
 static void present_hooks(void) {
     total_frames++;
     pace_frame();  // (pace.c: the game's 30 fps mode when frames don't fit 60)
+#ifdef SCARLET_AOT
+    // At 120/240 guest frames the window uses interval zero. Limit host
+    // presents to the chosen target so a high-refresh game does not run as
+    // fast as possible while awaiting physics/time-step verification.
+    extern int g_scarlet_target_fps;
+    if (g_scarlet_target_fps >= 120) {
+        static uint64_t last_frame_ns;
+        const uint64_t period_ns = 1000000000ull / (uint64_t)g_scarlet_target_fps;
+        uint64_t now = plat_now_ns();
+        if (last_frame_ns && now > last_frame_ns &&
+            now - last_frame_ns < period_ns) {
+            SDL_DelayNS(period_ns - (now - last_frame_ns));
+            now = plat_now_ns();
+        }
+        last_frame_ns = now;
+    }
+#endif
     extern void input_frame(uint64_t frame);
     input_frame(total_frames);
     static long slow_ms = -1;  // LARECOMP_SIM_SLOW_FRAME_MS=<ms>: sleep per presented frame (simulate a slow machine)

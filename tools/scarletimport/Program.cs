@@ -48,6 +48,18 @@ static int Run(string[] args)
 {
     string? titleKeys = null;  // (--title-keys: the launcher found it by its contents, whatever its name)
     if (args.Length >= 2 && args[0] == "--title-keys") (titleKeys, args) = (args[1], args[2..]);
+    // The original Scarlet PC Win32 launcher selects one folder. Read every
+    // discovered NSP/XCI from a UTF-8 manifest: no fixed DLC slots and no
+    // Windows command-line length cap when many packages are present.
+    if (args.Length == 4 && args[2] == "--packages-file")
+    {
+        var files = File.ReadAllLines(args[3])
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Where(p => Path.GetExtension(p).Equals(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                        Path.GetExtension(p).Equals(".xci", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        args = new[] { args[0], args[1] }.Concat(files).ToArray();
+    }
     if (args.Length < 3) return Fail("usage: scarletimport [--title-keys <title.keys>] <prod.keys> <out dir> <package.xci|nsp>...");
     string keyDir = Path.GetDirectoryName(Path.GetFullPath(args[0]))!;
     titleKeys ??= new[] { "title.keys", "title.keys.txt" }.Select(n => Path.Combine(keyDir, n)).FirstOrDefault(File.Exists);
@@ -102,13 +114,20 @@ static int Run(string[] args)
                Convert.ToHexString(id).StartsWith(expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    // NACP display version is required because 3.0.1 and 4.0.0 can share
-    // an NSO Build ID. A build ID alone is NOT an update-version proof.
+    // NACP display version is important: Scarlet 3.0.1 and 4.0.0 may
+    // share a main NSO Build ID. The old importer erroneously required
+    // Control NCAs to use the PATCH title ID (+0x800). Switch Control
+    // NCAs can instead keep the APPLICATION title ID (base).
+    // Consider both forms, restrict to Scarlet, and print what was found.
     bool version400 = false;
-    foreach (var (nca, _) in ncas)
+    var controlVersions = new List<string>();
+    int controlNcas = 0;
+    foreach (var (nca, name) in ncas)
     {
-        if (nca.Header.ContentType != NcaContentType.Control ||
-            nca.Header.TitleId != ScarletBase + 0x800) continue;
+        if (nca.Header.ContentType != NcaContentType.Control) continue;
+        ulong controlId = nca.Header.TitleId;
+        if (controlId != ScarletBase && controlId != ScarletBase + 0x800) continue;
+        controlNcas++;
         using var control = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
         foreach (var e in control.EnumerateEntries("/", "*.nacp"))
         {
@@ -116,12 +135,21 @@ static int Run(string[] args)
             control.OpenFile(ref f.Ref, e.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
             var version = new byte[16];
             f.Get.Read(out _, 0x3060, version).ThrowIfFailure();
-            string shown = System.Text.Encoding.UTF8.GetString(version).TrimEnd('\0');
+            string shown = System.Text.Encoding.UTF8.GetString(version)
+                .TrimEnd('\0', ' ', '\r', '\n');
+            controlVersions.Add(shown);
+            Console.WriteLine($"control: {name} title {controlId:x16} display version '{shown}'");
             if (shown == "4.0.0") version400 = true;
         }
     }
     if (!version400)
-        return Fail("no update Control NACP with display version 4.0.0; verify the selected update NSP");
+    {
+        string discovered = controlVersions.Count > 0
+            ? string.Join(", ", controlVersions.Distinct())
+            : $"none (Scarlet Control NCAs: {controlNcas})";
+        return Fail("Pokémon Scarlet update 4.0.0 not confirmed by control.nacp; " +
+                    $"detected versions: {discovered}. Check update package selection.");
+    }
     Nca? base_ = null, upd = null;
     var dlcs = new List<Nca>();
     foreach (var (nca, name) in ncas)
